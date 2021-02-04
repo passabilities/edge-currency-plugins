@@ -359,6 +359,7 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
           }
 
           await fns.updateAddressByScriptPubKey(scriptPubKey, {
+            networkQueryVal: tx.blockHeight + 1,
             lastTouched: tx.date,
             used: true
           })
