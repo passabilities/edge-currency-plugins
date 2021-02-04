@@ -302,7 +302,7 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
           }
 
           await innerUpdateAddressByScriptPubkey(scriptPubkey, {
-            networkQueryVal: tx.blockHeight,
+            networkQueryVal: tx.blockHeight + 1,
             lastTouched: tx.date,
             used: true
           })
