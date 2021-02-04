@@ -1,4 +1,4 @@
-import { EdgeFreshAddress, EdgeTxidMap, EdgeWalletInfo } from 'edge-core-js'
+import { EdgeFreshAddress, EdgeWalletInfo } from 'edge-core-js'
 import { Mutex } from 'async-mutex'
 import * as bs from 'biggystring'
 
@@ -15,8 +15,7 @@ import {
 import { UTXOPluginWalletTools } from './makeUtxoWalletTools'
 import { Processor } from '../db/Processor'
 import { BlockBook, ITransaction } from '../network/BlockBook'
-import { IAddress, IUTXO } from '../db/types'
-import { ProcessorTransaction } from '../db/Models/ProcessorTransaction'
+import { IAddress, IProcessorTransaction, IUTXO } from '../db/types'
 import {
   currencyFormatToPurposeType,
   getCurrencyFormatFromPurposeType,
@@ -526,7 +525,7 @@ interface FetchTransactionArgs {
   blockBook: BlockBook
 }
 
-const fetchTransaction = async (args: FetchTransactionArgs): Promise<ProcessorTransaction> => {
+const fetchTransaction = async (args: FetchTransactionArgs): Promise<IProcessorTransaction> => {
   const { txid, processor, blockBook } = args
   let tx = await processor.fetchTransaction(txid)
   if (!tx) {
@@ -637,16 +636,11 @@ const processAddressTransactions = async (args: ProcessAddressTxsArgs, page = 1)
     page
   })
 
-  const changeTxidMap: EdgeTxidMap = {}
-  for (const rawTx of transactions) {
+  const transactionPromises = transactions.map(async (rawTx) => {
     const tx = processRawTx({ ...args, tx: rawTx })
-    processor.saveTransaction(tx)
-
-    changeTxidMap[tx.txid] = tx.date
-  }
-  if (transactions.length ?? 0 > 0) {
-    emitter.emit(EmitterEvent.TXIDS_CHANGED, changeTxidMap)
-  }
+    await processor.saveTransaction(tx)
+  })
+  await Promise.all(transactionPromises)
 
   if (page < totalPages) {
     await processAddressTransactions(args, ++page)
@@ -659,9 +653,9 @@ interface ProcessRawTxArgs {
   currencyInfo: EngineCurrencyInfo
 }
 
-const processRawTx = (args: ProcessRawTxArgs): ProcessorTransaction => {
+const processRawTx = (args: ProcessRawTxArgs): IProcessorTransaction => {
   const { tx, currencyInfo } = args
-  return new ProcessorTransaction({
+  return {
     txid: tx.txid,
     hex: tx.hex,
     blockHeight: tx.blockHeight,
@@ -689,7 +683,7 @@ const processRawTx = (args: ProcessRawTxArgs): ProcessorTransaction => {
     ourIns: [],
     ourOuts: [],
     ourAmount: '0'
-  })
+  }
 }
 
 interface ProcessAddressUtxosArgs {
