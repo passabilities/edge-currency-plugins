@@ -76,6 +76,7 @@
     "bn.js": "^5.1.2",
     "bs58grscheck": "^2.1.2",
     "bs58smartcheck": "^2.0.4",
+    "cleaners": "^0.3.2",
     "disklet": "^0.4.5",
     "edge-core-js": "^0.17.14",
     "lodash": "^4.17.20",

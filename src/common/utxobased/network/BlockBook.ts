@@ -1,4 +1,5 @@
 import { EdgeTransaction } from 'edge-core-js'
+import { asArray, asNumber, asObject, asOptional, asString } from 'cleaners'
 
 import { EmitterEvent } from '../../plugin/types'
 import { makeSocket } from './Socket'
@@ -92,6 +93,28 @@ export interface ITransaction {
     hex?: string
   }>
 }
+
+const asTransaction = asObject<ITransaction>({
+  txid: asString,
+  hex: asString,
+  blockHeight: asNumber,
+  confirmations: asNumber,
+  blockTime: asNumber,
+  fees: asString,
+  vin: asArray(asObject({
+    txid: asString,
+    vout: asNumber,
+    value: asString,
+    addresses: asArray(asString),
+    hex: asOptional(asString)
+  })),
+  vout: asArray(asObject({
+    n: asNumber,
+    value: asString,
+    addresses: asArray(asString),
+    hex: asOptional(asString)
+  }))
+})
 
 interface IUTXO {
   txid: string
@@ -188,7 +211,7 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
     watchAddresses,
     fetchAddressUtxos,
     fetchTransaction,
-    broadcastTx,
+    broadcastTx
   }
   let wsIdCounter = 0
   const wsPendingMessages: IWsPendingMessages = {}
@@ -245,7 +268,7 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
     watchAddresses(addressesToWatch, addressWatcherCallback)
     sendWsMessage({
       id: WATCH_NEW_BLOCK_EVENT_ID,
-      method: 'subscribeNewBlock',
+      method: 'subscribeNewBlock'
     })
   }
 
@@ -279,7 +302,7 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
   function ping() {
     sendWsMessage({
       id: PING_ID,
-      method: PING_ID,
+      method: PING_ID
     })
   }
 
@@ -329,7 +352,8 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
   }
 
   async function fetchTransaction(hash: string): Promise<ITransaction> {
-    return promisifyWsMessage('getTransaction', { txid: hash })
+    const tx = await promisifyWsMessage('getTransaction', { txid: hash })
+    return asTransaction(tx)
   }
 
   async function broadcastTx(
