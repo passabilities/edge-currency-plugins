@@ -609,6 +609,8 @@ const processAddressBalance = async (args: ProcessAddressBalanceArgs): Promise<v
 
 interface ProcessAddressTxsArgs {
   address: string
+  page?: number
+  networkQueryVal?: number
   network: NetworkEnum
   currencyInfo: EngineCurrencyInfo
   processor: Processor
@@ -616,9 +618,10 @@ interface ProcessAddressTxsArgs {
   blockBook: BlockBook
 }
 
-const processAddressTransactions = async (args: ProcessAddressTxsArgs, page = 1): Promise<void> => {
+const processAddressTransactions = async (args: ProcessAddressTxsArgs): Promise<void> => {
   const {
     address,
+    page = 1,
     processor,
     walletTools,
     blockBook
@@ -626,24 +629,28 @@ const processAddressTransactions = async (args: ProcessAddressTxsArgs, page = 1)
 
   const scriptPubkey = walletTools.addressToScriptPubkey(address)
   const addressData = await processor.fetchAddressByScriptPubkey(scriptPubkey)
+  let networkQueryVal = args.networkQueryVal ?? addressData?.networkQueryVal
   const {
     transactions = [],
     totalPages
   } = await blockBook.fetchAddress(address, {
     details: 'txs',
-    from: addressData?.networkQueryVal,
+    from: networkQueryVal,
     perPage: 10,
     page
   })
 
-  const transactionPromises = transactions.map(async (rawTx) => {
+  for (const rawTx of transactions) {
     const tx = processRawTx({ ...args, tx: rawTx })
-    await processor.saveTransaction(tx)
-  })
-  await Promise.all(transactionPromises)
+    processor.saveTransaction(tx)
+  }
 
   if (page < totalPages) {
-    await processAddressTransactions(args, ++page)
+    await processAddressTransactions({
+      ...args,
+      page: page + 1,
+      networkQueryVal
+    })
   }
 }
 
