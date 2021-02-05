@@ -25,7 +25,7 @@ import {
   validScriptPubkeyFromAddress
 } from './utils'
 import { BIP43PurposeTypeEnum, ScriptTypeEnum } from '../keymanager/keymanager'
-import { batchFunctions } from '../../utils'
+import { makeTaskPicker, TaskPicker, TaskPriority } from './makeTaskPicker'
 
 export interface UtxoEngineState {
   start(): Promise<void>
@@ -60,6 +60,7 @@ export async function makeUtxoEngineState(config: UtxoEngineStateConfig): Promis
     metadata
   } = config
 
+  const taskPicker = await makeTaskPicker()
   const addressesToWatch = new Set<string>()
   const mutex = new Mutex()
 
@@ -82,10 +83,11 @@ export async function makeUtxoEngineState(config: UtxoEngineStateConfig): Promis
         const args = {
           ...config,
           format,
-          emitter: config.options.emitter,
+          emitter,
           addressesToWatch,
           onAddressChecked,
-          mutex
+          mutex,
+          taskPicker
         }
 
         await setLookAhead(args)
@@ -135,17 +137,14 @@ export async function makeUtxoEngineState(config: UtxoEngineStateConfig): Promis
 
     async addGapLimitAddresses(addresses: string[]): Promise<void> {
       const batchSize = 10
-      const fns = addresses.map((address) => async () => {
+      const tasks = addresses.map((address) => async () => {
         const scriptPubkey = walletTools.addressToScriptPubkey(address)
         await saveAddress({
           scriptPubkey,
           processor
         })
       })
-      await batchFunctions({
-        fns,
-        batchSize
-      })
+      taskPicker.addTasks(tasks, TaskPriority.LOW)
     },
 
     async markAddressUsed(address: string): Promise<void> {
@@ -465,6 +464,7 @@ interface CommonArgs {
   emitter: Emitter
   metadata: LocalWalletMetadata
   mutex: Mutex
+  taskPicker: TaskPicker
 }
 
 interface ProcessFormatAddressesArgs extends CommonArgs {
@@ -488,10 +488,10 @@ const processPathAddresses = async (args: ProcessPathAddressesArgs) => {
     walletTools,
     processor,
     format,
-    changeIndex
+    changeIndex,
+    taskPicker
   } = args
 
-  let processAddressPromises: Promise<any>[] = []
   const addressCount = await processor.fetchAddressCountFromPathPartition({ format, changeIndex })
   for (let i = 0; i < addressCount; i++) {
     const path: AddressPath = {
@@ -505,16 +505,12 @@ const processPathAddresses = async (args: ProcessPathAddressesArgs) => {
       scriptPubkey,
       format
     })
-    processAddressPromises.push(
-      processAddress({ ...args, address })
-    )
 
-    if (processAddressPromises.length >= 5) {
-      await Promise.all(processAddressPromises)
-      processAddressPromises = []
-    }
+    taskPicker.addTask({
+      task: () => processAddress({ ...args, address }),
+      priority: TaskPriority.HIGH
+    })
   }
-  await Promise.all(processAddressPromises)
 }
 
 interface FetchTransactionArgs {

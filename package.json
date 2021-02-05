@@ -80,6 +80,7 @@
     "disklet": "^0.4.5",
     "edge-core-js": "^0.17.22",
     "lodash": "^4.17.20",
+    "queue-promise": "^2.1.0",
     "uri-js": "^4.4.0",
     "url-parse": "^1.4.7",
     "wif-smart": "^2.0.0",
