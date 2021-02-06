@@ -48,13 +48,15 @@ export interface Processor {
 
   hasSPubKey(scriptPubkey: string): Promise<boolean>
 
-  fetchAddressCountFromPathPartition(path: Omit<AddressPath, 'addressIndex'>): number
+  getNumAddressesFromPathPartition(path: Omit<AddressPath, 'addressIndex'>): number
 
   fetchScriptPubkeysByBalance(): Promise<ScriptPubkeysByBalance[]>
 
   saveAddress(data: IAddress): Promise<void>
 
   updateAddressByScriptPubkey(scriptPubkey: string, data: Partial<IAddress>): Promise<void>
+
+  getNumTransactions(): number
 
   fetchTransaction(txId: string): Promise<TxById>
 
@@ -427,7 +429,7 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
       )
     },
 
-    fetchAddressCountFromPathPartition(path: Omit<AddressPath, 'addressIndex'>): number {
+    getNumAddressesFromPathPartition(path: Omit<AddressPath, 'addressIndex'>): number {
       return scriptPubkeyByPath.length(addressPathToPrefix(path))
     },
 
@@ -495,6 +497,10 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
       await addTask(() => innerUpdateAddressByScriptPubkey(scriptPubkey, data))
     },
 
+    getNumTransactions(): number {
+      return txsByDate.size('')
+    },
+
     async fetchTransaction(txId: string): Promise<TxById> {
       const [ data ] = await txById.query('', [ txId ])
       return data ? toProcessorTransaction(data) : undefined
@@ -509,17 +515,19 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
 
     async fetchTransactions(opts: EdgeGetTransactionsOptions): Promise<IProcessorTransaction[]> {
       const {
-        startEntries = 10,
-        startIndex = 0,
+        startEntries,
+        startIndex,
         startDate,
         endDate
       } = opts
 
-      let txData: TxsByDate
-      if (startDate) {
+      let txData: TxsByDate = []
+      if (startEntries && startIndex) {
+        txData = await txsByDate.queryByCount('', startEntries, startIndex)
+      } else if (startDate) {
         txData = await txsByDate.query('', startDate.getTime(), endDate?.getTime())
       } else {
-        txData = await txsByDate.queryByCount('', startEntries, startIndex)
+        txData = await txsByDate.query('', 0, Date.now())
       }
 
       const txPromises = txData.map(({ [RANGE_ID_KEY]: txId }) =>

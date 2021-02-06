@@ -183,7 +183,7 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
     },
 
     getNumTransactions(_opts: EdgeCurrencyCodeOptions): number {
-      return 0
+      return processor.getNumTransactions()
     },
 
     getPaymentProtocolInfo(_paymentProtocolUrl: string): Promise<EdgePaymentProtocolInfo> {

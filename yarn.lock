@@ -1547,10 +1547,9 @@ base@^0.11.1:
     mixin-deep "^1.2.0"
     pascalcase "^0.1.1"
 
-baselet@^0.0.5:
+"baselet@git://github.com/EdgeApp/baselet#noah/range-size":
   version "0.0.5"
-  resolved "https://registry.yarnpkg.com/baselet/-/baselet-0.0.5.tgz#35973f187dff25f58c53d15ce627b7d4fe530b3b"
-  integrity sha512-OKNegbOzdJK5Sy/EEB+W8hKWsTNSe+efl0l/po+HHB8vWJsTgs4imRB96WZ6clHiA2QBXnywZ3JUXdXPkWZYnw==
+  resolved "git://github.com/EdgeApp/baselet#d3872b8a0c45786fb65aa0d99aadb82e21aebca5"
   dependencies:
     disklet "^0.4.5"
     memlet "^0.0.3"

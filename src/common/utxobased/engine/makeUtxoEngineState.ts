@@ -178,7 +178,7 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
       }
 
       let lastUsed = await findLastUsedIndex({ ...args, ...partialPath })
-      let addressCount = await processor.fetchAddressCountFromPathPartition(partialPath)
+      let addressCount = await processor.getNumAddressesFromPathPartition(partialPath)
       while (lastUsed + currencyInfo.gapLimit > addressCount) {
         const path: AddressPath = {
           ...partialPath,
@@ -285,7 +285,7 @@ const getFormatAddressCount = async (args: GetFormatAddressCountArgs): Promise<n
 
   const branches = getFormatSupportedBranches(format)
   for (const branch of branches) {
-    let branchCount = await processor.fetchAddressCountFromPathPartition({ format, changeIndex: branch })
+    let branchCount = await processor.getNumAddressesFromPathPartition({ format, changeIndex: branch })
     if (branchCount < currencyInfo.gapLimit) branchCount = currencyInfo.gapLimit
     count += branchCount
   }
@@ -317,7 +317,7 @@ const getFreshIndex = async (args: GetFreshIndexArgs): Promise<number> => {
     changeIndex,
     addressIndex: 0 // tmp
   }
-  const addressCount = await processor.fetchAddressCountFromPathPartition(path)
+  const addressCount = await processor.getNumAddressesFromPathPartition(path)
   path.addressIndex = Math.max(addressCount - currencyInfo.gapLimit, 0)
 
   return find
@@ -334,7 +334,7 @@ const findLastUsedIndex = async (args: GetFreshIndexArgs): Promise<number> => {
   } = args
 
   const freshIndex = await getFreshIndex(args)
-  const addressCount = await processor.fetchAddressCountFromPathPartition({
+  const addressCount = await processor.getNumAddressesFromPathPartition({
     format,
     changeIndex
   })
@@ -368,7 +368,7 @@ const findFreshIndex = async (args: FindFreshIndexArgs): Promise<number> => {
     processor
   } = args
 
-  const addressCount = await processor.fetchAddressCountFromPathPartition(path)
+  const addressCount = await processor.getNumAddressesFromPathPartition(path)
   if (path.addressIndex >= addressCount) return path.addressIndex
 
   const addressData = await fetchAddressDataByPath(args)
@@ -493,7 +493,7 @@ const processPathAddresses = async (args: ProcessPathAddressesArgs) => {
     taskPicker
   } = args
 
-  const addressCount = await processor.fetchAddressCountFromPathPartition({ format, changeIndex })
+  const addressCount = await processor.getNumAddressesFromPathPartition({ format, changeIndex })
   for (let i = 0; i < addressCount; i++) {
     const path: AddressPath = {
       format,
