@@ -220,7 +220,7 @@ interface SaveAddressArgs {
 
 const saveAddress = async (args: SaveAddressArgs): Promise<void> => {
   const {
-    data: { scriptPubkey, path },
+    data: { scriptPubkey },
     processor
   } = args
 
@@ -237,11 +237,11 @@ const saveAddress = async (args: SaveAddressArgs): Promise<void> => {
   const addressData = await processor.fetchAddressByScriptPubkey(scriptPubkey)
   if (!addressData) {
     await saveNewAddress()
-  } else if (!addressData.path && path) {
+  } else if (!addressData.path && args.data.path) {
     try {
       await processor.updateAddressByScriptPubkey(scriptPubkey, {
         ...addressData,
-        path
+        ...args.data
       })
     } catch (err) {
       if (err.message === 'Cannot update address that does not exist') {
