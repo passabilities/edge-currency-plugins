@@ -60,7 +60,7 @@ export async function makeUtxoEngineState(config: UtxoEngineStateConfig): Promis
     metadata
   } = config
 
-  const taskPicker = await makeTaskPicker()
+  const taskPicker = makeTaskPicker()
   const addressesToWatch = new Set<string>()
   const mutex = new Mutex()
 
@@ -136,15 +136,13 @@ export async function makeUtxoEngineState(config: UtxoEngineStateConfig): Promis
     },
 
     async addGapLimitAddresses(addresses: string[]): Promise<void> {
-      const batchSize = 10
-      const tasks = addresses.map((address) => async () => {
+      for (const address of addresses) {
         const scriptPubkey = walletTools.addressToScriptPubkey(address)
         await saveAddress({
-          scriptPubkey,
+          data: { scriptPubkey },
           processor
         })
-      })
-      taskPicker.addTasks(tasks, TaskPriority.LOW)
+      }
     },
 
     async markAddressUsed(address: string): Promise<void> {
@@ -164,7 +162,8 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
     currencyInfo,
     walletTools,
     processor,
-    mutex
+    mutex,
+    taskPicker
   } = args
 
   const release = await mutex.acquire()
@@ -172,16 +171,14 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
   try {
     const branches = getFormatSupportedBranches(format)
     for (const branch of branches) {
+      const addressPromises: Promise<any>[] = []
       const partialPath: Omit<AddressPath, 'addressIndex'> = {
         format,
         changeIndex: branch
       }
 
-      const getLastUsed = () => findLastUsedIndex({ ...args, ...partialPath })
-      const getAddressCount = () => processor.fetchAddressCountFromPathPartition(partialPath)
-
-      let lastUsed = await getLastUsed()
-      let addressCount = await getAddressCount()
+      let lastUsed = await findLastUsedIndex({ ...args, ...partialPath })
+      let addressCount = await processor.fetchAddressCountFromPathPartition(partialPath)
       while (lastUsed + currencyInfo.gapLimit > addressCount) {
         const path: AddressPath = {
           ...partialPath,
@@ -190,19 +187,26 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
         const { address } = walletTools.getAddress(path)
         const scriptPubkey = walletTools.addressToScriptPubkey(address)
 
-        await saveAddress({
+        const { used, balance } = await processAddressBalance({
           ...args,
-          scriptPubkey,
-          path
+          address,
+          save: false
         })
-        await processAddressBalance({
+        const promise = saveAddress({
           ...args,
-          address
+          data: {
+            scriptPubkey,
+            path,
+            used,
+            balance
+          }
         })
+        addressPromises.push(promise)
 
-        lastUsed = await getLastUsed()
-        addressCount = await getAddressCount()
+        if (used) lastUsed = path.addressIndex
+        addressCount++
       }
+      await Promise.all(addressPromises)
     }
   } finally {
     release()
@@ -210,27 +214,24 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
 }
 
 interface SaveAddressArgs {
-  scriptPubkey: string
-  path?: AddressPath
+  data: Partial<IAddress> & { scriptPubkey: string }
   processor: Processor
 }
 
-const saveAddress = async (args: SaveAddressArgs, count = 0): Promise<void> => {
+const saveAddress = async (args: SaveAddressArgs): Promise<void> => {
   const {
-    scriptPubkey,
-    path,
+    data: { scriptPubkey, path },
     processor
   } = args
 
   const saveNewAddress = () =>
     processor.saveAddress({
-      scriptPubkey,
-      path,
       used: false,
       networkQueryVal: 0,
       lastQuery: 0,
       lastTouched: 0,
-      balance: '0'
+      balance: '0',
+      ...args.data
     })
 
   const addressData = await processor.fetchAddressByScriptPubkey(scriptPubkey)
@@ -506,9 +507,9 @@ const processPathAddresses = async (args: ProcessPathAddressesArgs) => {
       format
     })
 
-    taskPicker.addTask({
+    await taskPicker.addTask({
       task: () => processAddress({ ...args, address }),
-      priority: TaskPriority.HIGH
+      priority: TaskPriority.MEDIUM
     })
   }
 }
@@ -542,7 +543,8 @@ const processAddress = async (args: ProcessAddressArgs) => {
     address,
     blockBook,
     addressesToWatch,
-    onAddressChecked
+    onAddressChecked,
+    taskPicker
   } = args
 
   const firstProcess = !addressesToWatch.has(address)
@@ -554,17 +556,18 @@ const processAddress = async (args: ProcessAddressArgs) => {
     })
   }
 
-  await Promise.all([
-    processAddressBalance(args),
-    processAddressTransactions(args),
-    processAddressUtxos(args)
-  ])
+  await taskPicker.addTasks([
+    () => processAddressBalance(args),
+    () => processAddressTransactions(args),
+    () => processAddressUtxos(args)
+  ], TaskPriority.HIGH)
 
   firstProcess && await onAddressChecked?.()
 }
 
 interface ProcessAddressBalanceArgs {
   address: string
+  save?: boolean
   processor: Processor
   currencyInfo: EngineCurrencyInfo
   walletTools: UTXOPluginWalletTools
@@ -573,9 +576,15 @@ interface ProcessAddressBalanceArgs {
   metadata: LocalWalletMetadata
 }
 
-const processAddressBalance = async (args: ProcessAddressBalanceArgs): Promise<void> => {
+interface ProcessAddressBalanceReturn {
+  balance: string
+  used: boolean
+}
+
+const processAddressBalance = async (args: ProcessAddressBalanceArgs): Promise<ProcessAddressBalanceReturn> => {
   const {
     address,
+    save = true,
     processor,
     currencyInfo,
     walletTools,
@@ -595,12 +604,13 @@ const processAddressBalance = async (args: ProcessAddressBalanceArgs): Promise<v
     const newWalletBalance = bs.add(metadata.balance, diff)
     emitter.emit(EmitterEvent.BALANCE_CHANGED, currencyInfo.currencyCode, newWalletBalance)
   }
-  const used = accountDetails.txs > 0 || accountDetails.unconfirmedTxs > 0
 
-  await processor.updateAddressByScriptPubkey(scriptPubkey, {
+  const data = {
     balance,
-    used
-  })
+    used: accountDetails.txs > 0 || accountDetails.unconfirmedTxs > 0
+  }
+  save && await processor.updateAddressByScriptPubkey(scriptPubkey, data)
+  return data
 }
 
 interface ProcessAddressTxsArgs {
@@ -636,10 +646,10 @@ const processAddressTransactions = async (args: ProcessAddressTxsArgs): Promise<
     page
   })
 
-  for (const rawTx of transactions) {
+  transactions.forEach((rawTx) => {
     const tx = processRawTx({ ...args, tx: rawTx })
     processor.saveTransaction(tx)
-  }
+  })
 
   if (page < totalPages) {
     await processAddressTransactions({

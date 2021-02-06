@@ -1,62 +1,65 @@
-import Queue from 'queue-promise'
+import Queue from 'p-queue'
 
 export enum TaskPriority {
-  HIGH,
+  LOW,
   MEDIUM,
-  LOW
+  HIGH
 }
 
 export interface TaskPicker {
-  addTask(args: AddTaskArgs): void
-  addTasks(tasks: Task[], priority: TaskPriority): void
+  addTask<T>(args: AddTaskArgs): Promise<T>
+  addTasks(tasks: Task[], priority?: TaskPriority): Promise<void>
+  waitForQueueSize(): Promise<void>
 }
 
 interface AddTaskArgs {
   task: Task
-  priority: TaskPriority
+  priority?: TaskPriority
+  wait?: boolean
 }
 
-type Task = () => Promise<any>
+export type Task = () => Promise<any>
 
-export const makeTaskPicker = async (): Promise<TaskPicker> => {
-  const highQueue = new Queue({
-    concurrent: 8,
-    interval: 500,
-    start: true
+export const makeTaskPicker = (): TaskPicker => {
+  const queue = new Queue({
+    concurrency: 10,
+    autoStart: true
   })
-  const mediumQueue = new Queue({
-    concurrent: 4,
-    interval: 1000,
-    start: true
-  })
-  const lowQueue = new Queue({
-    concurrent: 2,
-    interval: 2000,
-    start: true
-  })
+
+  const waitForQueueSize = async (): Promise<void> => {
+    return new Promise<void>((resolve) => {
+      const checkQueueSize = () => {
+        if (queue.size < 50) {
+          queue.off('next', checkQueueSize)
+          resolve()
+        }
+      }
+
+      queue.on('next', checkQueueSize)
+      checkQueueSize()
+    })
+  }
 
   const taskPicker: TaskPicker = {
-    addTask(args: AddTaskArgs): void {
-      let queue: Queue
-      switch (args.priority) {
-        case TaskPriority.HIGH:
-          queue = highQueue
-          break
-        case TaskPriority.MEDIUM:
-          queue = mediumQueue
-          break
-        case TaskPriority.LOW:
-          queue = lowQueue
-      }
-      queue.add(args.task)
+    waitForQueueSize,
+
+    async addTask<T>(args: AddTaskArgs): Promise<T> {
+      await waitForQueueSize()
+
+      const {
+        task,
+        priority = TaskPriority.MEDIUM,
+        wait = false
+      } = args
+      const promise = queue.add(task, { priority })
+      let response
+      if (wait) response = await promise
+      return response
     },
 
-    addTasks(tasks: Task[], priority: TaskPriority): void {
+    async addTasks(tasks: Task[], priority?: TaskPriority): Promise<void> {
       for (const task of tasks) {
-        taskPicker.addTask({
-          task,
-          priority
-        })
+        await taskPicker.addTask({ task, priority })
       }
     }
   }

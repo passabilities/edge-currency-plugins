@@ -1,5 +1,5 @@
 type QueueFunction = () => Promise<any>
-interface IQueue {
+export interface IQueue {
   add(fn: QueueFunction): void
 }
 

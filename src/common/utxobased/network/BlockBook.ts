@@ -2,6 +2,7 @@ import { EdgeTransaction } from 'edge-core-js'
 
 import { EmitterEvent } from '../../plugin/types'
 import { makeSocket } from './Socket'
+import { makeTaskPicker } from '../engine/makeTaskPicker'
 
 export interface INewTransactionResponse {
   address: string
@@ -201,6 +202,8 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
   const WATCH_NEW_BLOCK_EVENT_ID = 'WATCH_NEW_BLOCK_EVENT_ID'
   const WATCH_ADDRESS_TX_EVENT_ID = 'WATCH_ADDRESS_TX_EVENT_ID'
 
+  const taskPicker = makeTaskPicker()
+
   const socket = makeSocket(`wss://${baseUri}/websocket`, {
     callbacks: {
       onMessage(message: string) {
@@ -267,13 +270,18 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
     method: string,
     params?: object
   ): Promise<T> {
-    return new Promise((resolve) => {
-      const id = wsIdCounter++
-      sendWsMessage({ id: id.toString(), method, params }, resolve)
+    return taskPicker.addTask<T>({
+      wait: true,
+      task: () => {
+        return new Promise((resolve) => {
+          const id = wsIdCounter++
+          sendWsMessage({ id: id.toString(), method, params }, resolve)
+        })
+      }
     })
   }
 
-  function sendWsMessage(message: IWsMessage, cb?: Function): void {
+  function sendWsMessage(message: IWsMessage, cb?: (result: any) => void): void {
     if (!instance.isConnected) {
       throw new Error('BlockBook websocket not connected')
     }

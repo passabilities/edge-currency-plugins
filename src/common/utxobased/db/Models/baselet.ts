@@ -19,7 +19,7 @@ export type AddressByScriptPubkey = IAddress | undefined
 export const addressByScriptPubkeyConfig: BaseletConfig<BaseType.HashBase> = {
   dbName: 'addressByScriptPubkey',
   type: BaseType.HashBase,
-  bucketSize: 6
+  bucketSize: 8
 }
 
 export type AddressPathByMRU = string
@@ -43,7 +43,7 @@ export type TxById = IProcessorTransaction | undefined
 export const txByIdConfig: BaseletConfig<BaseType.HashBase> = {
   dbName: 'txById',
   type: BaseType.HashBase,
-  bucketSize: 2
+  bucketSize: 6
 }
 
 export type TxsByScriptPubkey = {
@@ -55,10 +55,11 @@ export type TxsByScriptPubkey = {
 export const txsByScriptPubkeyConfig: BaseletConfig<BaseType.HashBase> = {
   dbName: 'txsByScriptPubkey',
   type: BaseType.HashBase,
-  bucketSize: 5
+  bucketSize: 8
 }
 
-export type TxsByDate = {
+export type TxsByDate = TxByDate[]
+type TxByDate = {
   [RANGE_ID_KEY]: string
   [RANGE_KEY]: string
 }
@@ -72,7 +73,7 @@ export type UtxoById = IUTXO | undefined
 export const utxoByIdConfig: BaseletConfig<BaseType.HashBase> = {
   dbName: 'utxoById',
   type: BaseType.HashBase,
-  bucketSize: 2
+  bucketSize: 6
 }
 
 export type UtxosByScriptPubkey = Array<{
@@ -82,7 +83,7 @@ export type UtxosByScriptPubkey = Array<{
 export const utxoIdsByScriptPubkeyConfig: BaseletConfig<BaseType.HashBase> = {
   dbName: 'utxoIdsByScriptPubkey',
   type: BaseType.HashBase,
-  bucketSize: 6
+  bucketSize: 8
 }
 
 export type UtxosBySize = {

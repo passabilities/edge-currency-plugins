@@ -7,7 +7,6 @@ import { Disklet } from 'disklet'
 
 import { Baselet, BaseletConfig, IAddress, IProcessorTransaction, IUTXO } from './types'
 import { toProcessorTransaction } from './Models/ProcessorTransaction'
-import { makeQueue } from './makeQueue'
 import { AddressPath, EmitterEvent } from '../../plugin/types'
 import {
   AddressByScriptPubkey,
@@ -15,21 +14,23 @@ import {
   addressPathByMRUConfig,
   addressPathToPrefix,
   RANGE_ID_KEY,
-  RANGE_KEY, ScriptPubkeyByPath,
+  RANGE_KEY,
+  ScriptPubkeyByPath,
   scriptPubkeyByPathConfig,
   ScriptPubkeysByBalance,
   scriptPubkeysByBalanceConfig,
   TxById,
-  txByIdConfig,
+  txByIdConfig, TxsByDate,
   txsByDateConfig,
   TxsByScriptPubkey,
   txsByScriptPubkeyConfig,
   UtxoById,
   utxoByIdConfig,
   utxoIdsByScriptPubkeyConfig,
-  utxoIdsBySizeConfig
+  utxoIdsBySizeConfig,
 } from './Models/baselet'
 import { EdgeGetTransactionsOptions } from 'edge-core-js/lib/types'
+import { makeTaskPicker, Task, TaskPriority } from '../engine/makeTaskPicker'
 
 interface ProcessorEmitter {
   emit(event: EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, transaction: IProcessorTransaction): boolean
@@ -61,11 +62,11 @@ export interface Processor {
 
   fetchTransactions(opts: EdgeGetTransactionsOptions): Promise<IProcessorTransaction[]>
 
-  saveTransaction(tx: IProcessorTransaction, withQueue?: boolean): Promise<void>
+  saveTransaction(tx: IProcessorTransaction): Promise<void>
 
-  updateTransaction(txId: string, data: Pick<IProcessorTransaction, 'blockHeight'>): void
+  updateTransaction(txId: string, data: Pick<IProcessorTransaction, 'blockHeight'>): Promise<void>
 
-  dropTransaction(txId: string): void
+  dropTransaction(txId: string): Promise<void>
 
   fetchUtxo(id: string): Promise<UtxoById>
 
@@ -73,9 +74,9 @@ export interface Processor {
 
   fetchAllUtxos(): Promise<IUTXO[]>
 
-  saveUtxo(utxo: IUTXO): void
+  saveUtxo(utxo: IUTXO): Promise<void>
 
-  removeUtxo(utxo: IUTXO): void
+  removeUtxo(utxo: IUTXO): Promise<void>
 }
 
 async function createOrOpen(disklet: Disklet, config: BaseletConfig<BaseType.HashBase>): Promise<HashBase>
@@ -103,7 +104,8 @@ async function createOrOpen<T extends BaseType>(
 }
 
 export async function makeProcessor(config: ProcessorConfig): Promise<Processor> {
-  const queue = makeQueue()
+  // const queue = makeQueue()
+  const taskPicker = await makeTaskPicker()
   const {
     disklet,
     emitter
@@ -133,17 +135,29 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
     createOrOpen(disklet, utxoIdsBySizeConfig)
   ])
 
+  const addTask = async (task: Task, priority = TaskPriority.HIGH) => {
+    await taskPicker.waitForQueueSize()
+    return taskPicker.addTask({
+      wait: true,
+      task,
+      priority
+    })
+  }
+
   async function innerFetchAddressesByScriptPubkeys(scriptPubkeys: string[]): Promise<AddressByScriptPubkey[]> {
     if (scriptPubkeys.length === 0) return []
     const addresses: AddressByScriptPubkey[] = await addressByScriptPubkey.query('', scriptPubkeys)
 
     // Update the last query values
     const now = Date.now()
-    addresses.map(async (address) => {
+    addresses.forEach((address) => {
       if (address) {
-        return innerUpdateAddressByScriptPubkey(address.scriptPubkey, {
-          lastQuery: now
-        })
+        addTask(() =>
+          innerUpdateAddressByScriptPubkey(address.scriptPubkey, {
+            lastQuery: now
+          }),
+          TaskPriority.LOW
+        )
       }
     })
 
@@ -207,10 +221,13 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
         txData.ourIns = Object.keys(tx.ins)
         txData.ourOuts = Object.keys(tx.outs)
 
-        await fns.updateAddressByScriptPubkey(scriptPubkey, {
-          lastTouched: txData.date,
-          used: true
-        })
+        addTask(() =>
+          innerUpdateAddressByScriptPubkey(scriptPubkey, {
+            lastTouched: txData.date,
+            used: true
+          }),
+          TaskPriority.LOW
+        )
 
         txData.ourAmount = await calculateTransactionAmount(txData)
         await innerUpdateTransaction(txId, txData, true)
@@ -281,10 +298,14 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
   async function innerSaveTransaction(tx: IProcessorTransaction): Promise<void> {
     const existingTx = await fns.fetchTransaction(tx.txid)
     if (!existingTx) {
-      await txsByDate.insert('', {
-        [RANGE_ID_KEY]: tx.txid,
-        [RANGE_KEY]: tx.date
-      })
+      try {
+        await txsByDate.insert('', {
+          [RANGE_ID_KEY]: tx.txid,
+          [RANGE_KEY]: tx.date
+        })
+      } catch (err) {
+        console.log('tx already saved by date')
+      }
     }
 
     for (const inOout of [ true, false ]) {
@@ -416,72 +437,62 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
       return scriptPubkeysByBalance.query('', 0, max)
     },
 
-    saveAddress(data: IAddress): Promise<void> {
-      return new Promise(async (resolve, reject) => {
-        const [ addressData ] = await addressByScriptPubkey.query('', [ data.scriptPubkey ])
-        if (addressData != null) {
-          return reject('Address already exists. To update its data call `updateAddressByScriptPubkey`')
+    async saveAddress(data: IAddress): Promise<void> {
+      const [ addressData ] = await addressByScriptPubkey.query('', [ data.scriptPubkey ])
+      if (addressData != null) {
+        throw new Error('Address already exists. To update its data call `updateAddressByScriptPubkey`')
+      }
+
+      await addTask(async () => {
+        const promises: Promise<any>[] = []
+
+        // If there is path info on the address to save but not stored in
+        // the previously existing data, save to the by path database.
+        if (data.path && !addressData?.path) {
+          promises.push(
+            innerSaveScriptPubkeyByPath(data.scriptPubkey, data.path)
+          )
         }
 
-        queue.add(async () => {
-          const promises: Promise<any>[] = []
-
-          // If there is path info on the address to save but not stored in
-          // the previously existing data, save to the by path database.
-          if (data.path && !addressData?.path) {
-            promises.push(
-              innerSaveScriptPubkeyByPath(data.scriptPubkey, data.path)
+        try {
+          promises.push(
+            addressByScriptPubkey.insert(
+              '',
+              data.scriptPubkey,
+              data
             )
-          }
+          )
 
-          try {
-            promises.push(
-              addressByScriptPubkey.insert(
-                '',
-                data.scriptPubkey,
-                data
-              )
-            )
+          promises.push(
+            scriptPubkeysByBalance.insert('', {
+              [RANGE_ID_KEY]: data.scriptPubkey,
+              [RANGE_KEY]: parseInt(data.balance)
+            })
+          )
 
-            promises.push(
-              scriptPubkeysByBalance.insert('', {
-                [RANGE_ID_KEY]: data.scriptPubkey,
-                [RANGE_KEY]: parseInt(data.balance)
-              })
-            )
+          // TODO:
+          // promises.push(addressByMRU.insert('', index, data))
 
-            // TODO:
-            // promises.push(addressByMRU.insert('', index, data))
+          await Promise.all(promises)
 
-            await Promise.all(promises)
+          await processScriptPubkeyTransactions(data.scriptPubkey)
+        } catch (err) {
+          // Undo any changes we made on a fail
+          await addressByScriptPubkey.delete('', [ data.scriptPubkey ])
 
-            await processScriptPubkeyTransactions(data.scriptPubkey)
-          } catch (err) {
-            // Undo any changes we made on a fail
-            await addressByScriptPubkey.delete('', [ data.scriptPubkey ])
+          await scriptPubkeysByBalance.delete('', parseInt(data.balance), data.scriptPubkey)
 
-            await scriptPubkeysByBalance.delete('', parseInt(data.balance), data.scriptPubkey)
-
-            // TODO:
-            // addressByMRU.delete()
-          }
-
-          resolve()
-        })
+          // TODO:
+          // addressByMRU.delete()
+        }
       })
     },
 
-    updateAddressByScriptPubkey(
+    async updateAddressByScriptPubkey(
       scriptPubkey: string,
       data: Partial<IAddress>
     ): Promise<void> {
-      return new Promise((resolve, reject) => {
-        queue.add(async () => {
-          innerUpdateAddressByScriptPubkey(scriptPubkey, data)
-            .then(() => resolve())
-            .catch(reject)
-        })
-      })
+      await addTask(() => innerUpdateAddressByScriptPubkey(scriptPubkey, data))
     },
 
     async fetchTransaction(txId: string): Promise<TxById> {
@@ -499,33 +510,38 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
     async fetchTransactions(opts: EdgeGetTransactionsOptions): Promise<IProcessorTransaction[]> {
       const {
         startEntries = 10,
-        startIndex = 0
+        startIndex = 0,
+        startDate,
+        endDate
       } = opts
-      const txData = await txsByDate.queryByCount('', startEntries, startIndex)
+
+      let txData: TxsByDate
+      if (startDate) {
+        txData = await txsByDate.query('', startDate.getTime(), endDate?.getTime())
+      } else {
+        txData = await txsByDate.queryByCount('', startEntries, startIndex)
+      }
+
       const txPromises = txData.map(({ [RANGE_ID_KEY]: txId }) =>
-        txById.query('', [ txId ])
-          .then(([ tx ]) => toProcessorTransaction(tx))
+        txById.query('', [ txId ]).then(([ tx ]) => tx)
       )
       return Promise.all(txPromises)
     },
 
-    async saveTransaction(tx: IProcessorTransaction, withQueue = true): Promise<void> {
-      const saveTx = () => innerSaveTransaction(tx)
-      return withQueue
-        ? queue.add(saveTx)
-        : saveTx()
+    async saveTransaction(tx: IProcessorTransaction): Promise<void> {
+      await addTask(() => innerSaveTransaction(tx))
     },
 
-    updateTransaction(
+    async updateTransaction(
       txId: string,
       data: IProcessorTransaction
-    ): void {
-      queue.add(() => innerUpdateTransaction(txId, data))
+    ): Promise<void> {
+      await addTask(() => innerUpdateTransaction(txId, data))
     },
 
     // TODO: delete everything from db?
-    dropTransaction(txId: string): void {
-      queue.add(() => innerDropTransaction(txId))
+    async dropTransaction(txId: string): Promise<void> {
+      await addTask(() => innerDropTransaction(txId))
     },
 
     async fetchUtxo(id: string): Promise<IUTXO> {
@@ -544,12 +560,12 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
       return ids.length === 0 ? [] : utxoById.query('', ids)
     },
 
-    saveUtxo(utxo: IUTXO) {
-      queue.add(() => innerSaveUtxo(utxo))
+    async saveUtxo(utxo: IUTXO): Promise<void> {
+      await addTask(() => innerSaveUtxo(utxo))
     },
 
-    removeUtxo(utxo: IUTXO) {
-      queue.add(() => innerRemoveUtxo(utxo))
+    async removeUtxo(utxo: IUTXO): Promise<void> {
+      await addTask(() => innerRemoveUtxo(utxo))
     }
   }
 
