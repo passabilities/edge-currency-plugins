@@ -63,13 +63,22 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
 
   return {
     async start(): Promise<void> {
+      let processedCount = 0
+      const onAddressChecked = async () => {
+        processedCount = processedCount + 1
+        const totalCount = await getTotalAddressCount({ walletInfo, currencyInfo, processor })
+        const ratio = processedCount / totalCount
+        emitter.emit(EmitterEvent.ADDRESSES_CHECKED, ratio)
+      }
+
       const formatsToProcess = getWalletSupportedFormats(walletInfo)
       for (const format of formatsToProcess) {
-        const args = {
+        const args: SetLookAheadArgs & ProcessFormatAddressesArgs = {
           ...config,
           format,
           emitter: config.options.emitter,
           addressesToWatch,
+          onAddressChecked,
           mutex
         }
 
@@ -101,6 +110,7 @@ interface CommonArgs {
   blockBook: BlockBook
   emitter: Emitter
   addressesToWatch: Set<string>
+  onAddressChecked: () => void
   metadata: LocalWalletMetadata
   mutex: Mutex
 }
@@ -201,6 +211,51 @@ const saveAddress = async (args: SaveAddressArgs, count = 0): Promise<void> => {
       }
     }
   }
+}
+
+interface GetTotalAddressCountArgs {
+  currencyInfo: EngineCurrencyInfo
+  walletInfo: EdgeWalletInfo
+  processor: Processor
+}
+
+const getTotalAddressCount = async (args: GetTotalAddressCountArgs): Promise<number> => {
+  const {
+    currencyInfo,
+    walletInfo,
+    processor
+  } = args
+
+  const walletFormats = getWalletSupportedFormats(walletInfo)
+
+  let count = 0
+  for (const format of walletFormats) {
+    count += await getFormatAddressCount({ ...args, format })
+  }
+  return count
+}
+
+interface GetFormatAddressCountArgs extends GetTotalAddressCountArgs {
+  format: CurrencyFormat
+}
+
+const getFormatAddressCount = async (args: GetFormatAddressCountArgs): Promise<number> => {
+  const {
+    format,
+    currencyInfo,
+    processor
+  } = args
+
+  let count = 0
+
+  const branches = getFormatSupportedBranches(format)
+  for (const branch of branches) {
+    let branchCount = await processor.fetchAddressCountFromPathPartition({ format, changeIndex: branch })
+    if (branchCount < currencyInfo.gapLimit) branchCount = currencyInfo.gapLimit
+    count += branchCount
+  }
+
+  return count
 }
 
 interface GetFreshIndexArgs {
@@ -381,7 +436,8 @@ const processAddress = async (args: ProcessAddressArgs) => {
   const {
     address,
     blockBook,
-    addressesToWatch
+    addressesToWatch,
+    onAddressChecked
   } = args
 
   const firstProcess = !addressesToWatch.has(address)
@@ -398,6 +454,8 @@ const processAddress = async (args: ProcessAddressArgs) => {
     processAddressTransactions(args),
     processAddressUtxos(args)
   ])
+
+  firstProcess && onAddressChecked()
 }
 
 interface ProcessAddressBalanceArgs {
