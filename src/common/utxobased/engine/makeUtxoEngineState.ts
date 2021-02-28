@@ -129,7 +129,7 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
       }
 
       const getLastUsed = () => findLastUsedIndex({ ...args, ...partialPath })
-      const getAddressCount = () => processor.fetchAddressCountFromPathPartition(partialPath)
+      const getAddressCount = () => processor.getNumAddressesFromPathPartition(partialPath)
 
       let lastUsed = await getLastUsed()
       let addressCount = await getAddressCount()
@@ -203,6 +203,46 @@ const saveAddress = async (args: SaveAddressArgs, count = 0): Promise<void> => {
   }
 }
 
+interface GetTotalAddressCountArgs {
+  currencyInfo: EngineCurrencyInfo
+  walletInfo: EdgeWalletInfo
+  processor: Processor
+}
+
+const getTotalAddressCount = async (args: GetTotalAddressCountArgs): Promise<number> => {
+  const walletFormats = getWalletSupportedFormats(args.walletInfo)
+
+  let count = 0
+  for (const format of walletFormats) {
+    count += await getFormatAddressCount({ ...args, format })
+  }
+
+  return count
+}
+
+interface GetFormatAddressCountArgs extends GetTotalAddressCountArgs {
+  format: CurrencyFormat
+}
+
+const getFormatAddressCount = async (args: GetFormatAddressCountArgs): Promise<number> => {
+  const {
+    format,
+    currencyInfo,
+    processor
+  } = args
+
+  let count = 0
+
+  const branches = getFormatSupportedBranches(format)
+  for (const branch of branches) {
+    let branchCount = await processor.getNumAddressesFromPathPartition({ format, changeIndex: branch })
+    if (branchCount < currencyInfo.gapLimit) branchCount = currencyInfo.gapLimit
+    count += branchCount
+  }
+
+  return count
+}
+
 interface GetFreshIndexArgs {
   format: CurrencyFormat
   changeIndex: number
@@ -227,7 +267,7 @@ const getFreshIndex = async (args: GetFreshIndexArgs): Promise<number> => {
     changeIndex,
     addressIndex: 0 // tmp
   }
-  const addressCount = await processor.fetchAddressCountFromPathPartition(path)
+  const addressCount = await processor.getNumAddressesFromPathPartition(path)
   path.addressIndex = Math.max(addressCount - currencyInfo.gapLimit, 0)
 
   return find
@@ -244,7 +284,7 @@ const findLastUsedIndex = async (args: GetFreshIndexArgs): Promise<number> => {
   } = args
 
   const freshIndex = await getFreshIndex(args)
-  const addressCount = await processor.fetchAddressCountFromPathPartition({
+  const addressCount = await processor.getNumAddressesFromPathPartition({
     format,
     changeIndex
   })
@@ -278,7 +318,7 @@ const findFreshIndex = async (args: FindFreshIndexArgs): Promise<number> => {
     processor
   } = args
 
-  const addressCount = await processor.fetchAddressCountFromPathPartition(path)
+  const addressCount = await processor.getNumAddressesFromPathPartition(path)
   if (path.addressIndex >= addressCount) return path.addressIndex
 
   const addressData = await fetchAddressDataByPath(args)
@@ -354,7 +394,7 @@ const processPathAddresses = async (args: ProcessPathAddressesArgs) => {
     changeIndex
   } = args
 
-  const addressCount = await processor.fetchAddressCountFromPathPartition({ format, changeIndex })
+  const addressCount = await processor.getNumAddressesFromPathPartition({ format, changeIndex })
   for (let i = 0; i < addressCount; i++) {
     const path: AddressPath = {
       format,
