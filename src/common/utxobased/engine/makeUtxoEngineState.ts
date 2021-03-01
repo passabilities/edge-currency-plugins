@@ -63,13 +63,22 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
 
   return {
     async start(): Promise<void> {
+      let processedCount = 0
+      const onAddressChecked = async () => {
+        processedCount = processedCount + 1
+        const totalCount = await getTotalAddressCount({ walletInfo, currencyInfo, processor })
+        const ratio = processedCount / totalCount
+        emitter.emit(EmitterEvent.ADDRESSES_CHECKED, ratio)
+      }
+
       const formatsToProcess = getWalletSupportedFormats(walletInfo)
       for (const format of formatsToProcess) {
-        const args = {
+        const args: SetLookAheadArgs & ProcessFormatAddressesArgs = {
           ...config,
           format,
           emitter: config.options.emitter,
           addressesToWatch,
+          onAddressChecked,
           mutex
         }
 
@@ -136,6 +145,7 @@ interface CommonArgs {
   blockBook: BlockBook
   emitter: Emitter
   addressesToWatch: Set<string>
+  onAddressChecked: () => void
   metadata: LocalWalletMetadata
   mutex: Mutex
 }
@@ -489,7 +499,8 @@ const processAddress = async (args: ProcessAddressArgs) => {
   const {
     address,
     blockBook,
-    addressesToWatch
+    addressesToWatch,
+    onAddressChecked
   } = args
 
   const firstProcess = !addressesToWatch.has(address)
@@ -506,6 +517,8 @@ const processAddress = async (args: ProcessAddressArgs) => {
     processAddressTransactions(args),
     processAddressUtxos(args)
   ])
+
+  firstProcess && onAddressChecked()
 }
 
 interface ProcessAddressBalanceArgs {
