@@ -63,10 +63,15 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
     metadata
   })
 
-  emitter.on(EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, (tx: IProcessorTransaction) => {
-    emitter.emit(EmitterEvent.TRANSACTIONS_CHANGED, ([
-      toEdgeTransaction(tx, currencyInfo.currencyCode)
-    ]))
+  emitter.on(EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, async (tx: IProcessorTransaction) => {
+    emitter.emit(EmitterEvent.TRANSACTIONS_CHANGED, [
+      await toEdgeTransaction({
+        tx,
+        currencyCode: currencyInfo.currencyCode,
+        walletTools,
+        processor
+      })
+    ])
   })
 
   emitter.on(EmitterEvent.BALANCE_CHANGED, async (currencyCode: string, nativeBalance: string) => {
@@ -153,7 +158,7 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
     },
 
     getNumTransactions(_opts: EdgeCurrencyCodeOptions): number {
-      return 0
+      return processor.getNumTransactions()
     },
 
     getPaymentProtocolInfo(_paymentProtocolUrl: string): Promise<EdgePaymentProtocolInfo> {
@@ -167,7 +172,14 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
 
     async getTransactions(opts: EdgeGetTransactionsOptions): Promise<EdgeTransaction[]> {
       const txs = await processor.fetchTransactions(opts)
-      return txs.map((tx) => toEdgeTransaction(tx, currencyInfo.currencyCode))
+      return await Promise.all(txs.map((tx: IProcessorTransaction) =>
+        toEdgeTransaction({
+          tx,
+          currencyCode: currencyInfo.currencyCode,
+          walletTools,
+          processor
+        })
+      ))
     },
 
     // @ts-ignore
