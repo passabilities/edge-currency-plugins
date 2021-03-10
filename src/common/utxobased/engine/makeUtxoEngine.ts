@@ -63,6 +63,8 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
   const fees = await makeFees({
     disklet: navigateDisklet(walletLocalDisklet, FEES_DISKLET_PATH),
     currencyInfo,
+    io,
+    log: config.options.log
   })
 
   const blockBook = makeBlockBook({ emitter })
@@ -97,15 +99,16 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
   const fns: EdgeCurrencyEngine = {
     async startEngine(): Promise<void> {
       await blockBook.connect()
-
       const { bestHeight } = await blockBook.fetchInfo()
       emitter.emit(EmitterEvent.BLOCK_HEIGHT_CHANGED, bestHeight)
 
+      await fees.start()
       await state.start()
     },
 
     async killEngine(): Promise<void> {
       await state.stop()
+      fees.stop()
       await blockBook.disconnect()
     },
 
