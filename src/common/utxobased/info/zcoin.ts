@@ -1,5 +1,5 @@
 import { EngineCurrencyInfo, EngineCurrencyType } from '../../plugin/types'
-import { imageServerUrl } from './constants'
+import { IMAGE_SERVER_URL } from '../../constants'
 
 
 export const info: EngineCurrencyInfo = {
@@ -50,6 +50,6 @@ export const info: EngineCurrencyInfo = {
   transactionExplorer: 'https://insight.zcoin.io/tx/%s',
 
   // Images:
-  symbolImage: `${imageServerUrl}/zcoin-logo-solo-64.png`,
-  symbolImageDarkMono: `${imageServerUrl}/zcoin-logo-solo-64.png`
+  symbolImage: `${IMAGE_SERVER_URL}/zcoin-logo-solo-64.png`,
+  symbolImageDarkMono: `${IMAGE_SERVER_URL}/zcoin-logo-solo-64.png`
 }

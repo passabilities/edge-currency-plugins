@@ -1,5 +1,5 @@
 import { EngineCurrencyInfo, EngineCurrencyType } from '../../plugin/types'
-import { imageServerUrl } from './constants'
+import { IMAGE_SERVER_URL } from '../../constants'
 
 
 export const info: EngineCurrencyInfo = {
@@ -47,6 +47,6 @@ export const info: EngineCurrencyInfo = {
   transactionExplorer: 'https://fsight.chain.tips/tx/%s',
 
   // Images:
-  symbolImage: `${imageServerUrl}/feathercoin-logo-solo-64.png`,
-  symbolImageDarkMono: `${imageServerUrl}/feathercoin-logo-solo-64.png`
+  symbolImage: `${IMAGE_SERVER_URL}/feathercoin-logo-solo-64.png`,
+  symbolImageDarkMono: `${IMAGE_SERVER_URL}/feathercoin-logo-solo-64.png`
 }

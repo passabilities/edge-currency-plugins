@@ -1,3 +1,4 @@
+export const IMAGE_SERVER_URL = 'https://developer.airbitz.co/content'
 export const INFO_SERVER_URI = 'https://info1.edgesecure.co:8444/v1'
 
 // Fees
