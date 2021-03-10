@@ -11,6 +11,7 @@ import {
   EdgeTxidMap,
   JsonObject
 } from 'edge-core-js'
+import { navigateDisklet } from 'disklet'
 import * as bs from 'biggystring'
 import * as bitcoin from 'altcoin-js'
 
@@ -19,6 +20,7 @@ import { makeUtxoEngineState } from './makeUtxoEngineState'
 import { makeProcessor } from '../db/makeProcessor'
 import { makeTx, MakeTxTarget, signTx } from '../keymanager/keymanager'
 import { calculateFeeRate } from './makeSpendHelper'
+import { Fees, makeFees } from '../../fees'
 import { makeBlockBook } from '../network/BlockBook'
 import { makeUtxoWalletTools } from './makeUtxoWalletTools'
 import { fetchMetadata, setMetadata } from '../../plugin/utils'
@@ -27,6 +29,7 @@ import { IProcessorTransaction } from '../db/types'
 import { fromEdgeTransaction, toEdgeTransaction } from '../db/Models/ProcessorTransaction'
 import { createPayment, getPaymentDetails, sendPayment } from './paymentRequest'
 import { makeMutexor } from './mutexor'
+import { FEES_DISKLET_PATH } from '../../constants'
 
 export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrencyEngine> {
   const {
@@ -55,6 +58,11 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
     keys: walletInfo.keys,
     coin: currencyInfo.network,
     network
+  })
+
+  const fees = await makeFees({
+    disklet: navigateDisklet(walletLocalDisklet, FEES_DISKLET_PATH),
+    currencyInfo,
   })
 
   const blockBook = makeBlockBook({ emitter })
