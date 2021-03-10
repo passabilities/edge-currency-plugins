@@ -19,7 +19,6 @@ import { EmitterEvent, EngineConfig } from '../../plugin/types'
 import { makeUtxoEngineState } from './makeUtxoEngineState'
 import { makeProcessor } from '../db/makeProcessor'
 import { makeTx, MakeTxTarget, signTx } from '../keymanager/keymanager'
-import { calculateFeeRate } from './makeSpendHelper'
 import { Fees, makeFees } from '../../fees'
 import { makeBlockBook } from '../network/BlockBook'
 import { makeUtxoWalletTools } from './makeUtxoWalletTools'
@@ -243,7 +242,7 @@ export async function makeUtxoEngine(config: EngineConfig): Promise<EdgeCurrency
       const freshAddress = await state.getFreshAddress(1)
       const freshChangeAddress = freshAddress.segwitAddress ?? freshAddress.publicAddress
       const utxos = await processor.fetchAllUtxos()
-      const feeRate = parseInt(calculateFeeRate(currencyInfo, edgeSpendInfo))
+      const feeRate = parseInt(await fees.getRate(edgeSpendInfo))
       const tx = await makeTx({
         utxos,
         targets,
