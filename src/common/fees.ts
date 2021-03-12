@@ -50,35 +50,36 @@ export const makeFees = async (config: MakeFeesConfig): Promise<Fees> => {
   // The last time the fees were updated
   let timestamp = 0
 
-  const updateVendorFees = async () => {
+  const updateEdgeFees = async () => {
     if (Date.now() - timestamp <= currencyInfo.feeUpdateInterval) return
 
-    const vendorFees = await fetchFeesFromVendor({
-      earnComFeeInfoServer: currencyInfo.earnComFeeInfoServer,
-      mempoolSpaceFeeInfoServer: currencyInfo.mempoolSpaceFeeInfoServer,
-      io,
-      log
-    })
-    fees = { ...fees, ...vendorFees }
+    const edgeFees = await fetchFeesFromEdge({ currencyInfo, io, log })
+    fees = { ...fees, ...edgeFees }
     timestamp = Date.now()
 
     await cacheFees(memlet, fees)
   }
 
-  let vendorIntervalId: NodeJS.Timeout
+  let edgeIntervalId: NodeJS.Timeout
 
   return {
     async start(): Promise<void> {
+      const vendorFees = await fetchFeesFromVendor({
+        earnComFeeInfoServer: currencyInfo.earnComFeeInfoServer,
+        mempoolSpaceFeeInfoServer: currencyInfo.mempoolSpaceFeeInfoServer,
+        io,
+        log
+      })
       fees = {
         ...fees,
-        ...await fetchFeesFromEdge({ currencyInfo, io, log })
+        ...vendorFees
       }
-      await updateVendorFees()
-      vendorIntervalId = setInterval(updateVendorFees, currencyInfo.feeUpdateInterval)
+      await updateEdgeFees()
+      edgeIntervalId = setInterval(updateEdgeFees, currencyInfo.feeUpdateInterval)
     },
 
     stop(): void {
-      clearInterval(vendorIntervalId)
+      clearInterval(edgeIntervalId)
     },
 
     async getRate(edgeSpendInfo: EdgeSpendInfo): Promise<string> {
