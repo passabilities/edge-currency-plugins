@@ -567,10 +567,12 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
         txData = await txsByDate.query('', 0, Date.now())
       }
 
-      const txPromises = txData.map(({ [RANGE_ID_KEY]: txId }) =>
-        txById.query('', [ txId ]).then(([ tx ]) => tx)
+      const txs = await Promise.all(
+        txData.map(({ [RANGE_ID_KEY]: txId }) =>
+          txById.query('', [ txId ]).then(([ tx ]) => tx)
+        )
       )
-      return Promise.all(txPromises)
+      return txs.filter((tx) => !!tx)
     },
 
     async saveTransaction(tx: IProcessorTransaction, withQueue = true): Promise<void> {
