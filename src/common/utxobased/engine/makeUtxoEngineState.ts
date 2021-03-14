@@ -25,6 +25,8 @@ import {
 } from './utils'
 import { makeMutexor, Mutexor } from './mutexor'
 import { BLOCKBOOK_TXS_PER_PAGE, CACHE_THROTTLE } from './constants'
+import { BLOCKBOOK_TXS_PER_PAGE } from './constants'
+import { overArgs } from 'lodash'
 
 export interface UtxoEngineState {
   start(): Promise<void>
@@ -248,11 +250,59 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
         scriptPubkey,
         path
       })
-
-      // TODO: don't process addresses during setLookAhead. Addresses should be added to a queue here
-      await processAddress({ ...args, address })
     }
   })
+}
+
+const pickNextTask = (uri: string): WsTask | void {
+  addressCache.forEach((value, key) => {
+    if (!value.processed) {
+      // processAddress({ ...value })
+      const firstProcess = !addressesToWatch.has(value.address)
+      if (firstProcess) {
+        addressesToWatch.add(address)
+        value.process = true
+        return BLOCKBOOK_TXS_PER_PAGE.watchAddresses(Array.from(addressesToWatch), async(response) => {
+          setLookAhead(args)
+          processAddress({ ...overArgs, address: response.address })
+        })
+      }
+    }
+    if (value.processed) {
+
+    }
+    processAddressTransactions(args)
+    processAddressUtxos(args)
+  })
+}
+
+const processAddress = async (args: ProcessAddressArgs) => {
+  const {
+    address,
+    blockBook,
+    addressesToWatch
+  } = args
+
+  const firstProcess = !addressesToWatch.has(address)
+  if (firstProcess) {
+    addressesToWatch.add(address)
+    blockBook.watchAddresses(Array.from(addressesToWatch), async (response) => {
+      await setLookAhead(args)
+      await processAddress({ ...args, address: response.address })
+    })
+  }
+
+  await Promise.all([
+    processAddressTransactions(args),
+    processAddressUtxos(args)
+  ])
+}
+
+const addressCache: Map<string, AddressCache> = new Map()
+
+interface AddressCache extends FormatArgs {
+  address: string
+  processed: boolean
 }
 
 interface SaveAddressArgs extends CommonArgs {
