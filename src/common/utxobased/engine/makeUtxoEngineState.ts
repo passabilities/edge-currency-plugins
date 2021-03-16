@@ -9,7 +9,7 @@ import {
   EngineConfig,
   EngineCurrencyInfo,
   LocalWalletMetadata,
-  NetworkEnum
+  NetworkEnum,
 } from '../../plugin/types'
 import { BlockBook, ITransaction } from '../network/BlockBook'
 import { IAddress, IProcessorTransaction, IUTXO } from '../db/types'
@@ -17,13 +17,12 @@ import { BIP43PurposeTypeEnum, ScriptTypeEnum } from '../keymanager/keymanager'
 import { Processor } from '../db/makeProcessor'
 import { UTXOPluginWalletTools } from './makeUtxoWalletTools'
 import {
+  currencyFormatToPurposeType,
   getCurrencyFormatFromPurposeType,
-  validScriptPubkeyFromAddress,
-  getPurposeTypeFromKeys,
-  getWalletFormat,
-  getWalletSupportedFormats,
   getFormatSupportedBranches,
-  currencyFormatToPurposeType
+  getPurposeTypeFromKeys,
+  getWalletSupportedFormats,
+  validScriptPubkeyFromAddress,
 } from './utils'
 import { makeMutexor, Mutexor } from './mutexor'
 import { BLOCKBOOK_TXS_PER_PAGE, CACHE_THROTTLE } from './constants'
@@ -155,9 +154,9 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
     async addGapLimitAddresses(addresses: string[]): Promise<void> {
       await Promise.all(addresses.map(async (addr) => {
         return saveAddress({
+          ...commonArgs,
           scriptPubkey: walletTools.addressToScriptPubkey(addr),
           used: true,
-          processor
         })
       }))
       await run()
@@ -251,11 +250,10 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
   })
 }
 
-interface SaveAddressArgs {
+interface SaveAddressArgs extends CommonArgs {
   scriptPubkey: string
   path?: AddressPath
   used?: boolean
-  processor: Processor
 }
 
 const saveAddress = async (args: SaveAddressArgs, count = 0): Promise<void> => {
@@ -263,41 +261,32 @@ const saveAddress = async (args: SaveAddressArgs, count = 0): Promise<void> => {
     scriptPubkey,
     path,
     used = false,
-    processor
+    processor,
+    mutexor
   } = args
 
-  const saveNewAddress = () =>
-    processor.saveAddress({
-      scriptPubkey,
-      path,
-      used,
-      networkQueryVal: 0,
-      lastQuery: 0,
-      lastTouched: 0,
-      balance: '0'
-    })
-
-  const addressData = await processor.fetchAddressByScriptPubkey(scriptPubkey)
-  if (!addressData) {
-    await saveNewAddress()
-  } else if (!addressData.used && used) {
-    await processor.updateAddressByScriptPubkey(scriptPubkey, {
-      used,
-    })
-  } else if (!addressData.path && path) {
+  await mutexor('saveAddress').runExclusive(async () => {
     try {
-      await processor.updateAddressByScriptPubkey(scriptPubkey, {
-        ...addressData,
-        path
+      await processor.saveAddress({
+        scriptPubkey,
+        path,
+        used,
+        networkQueryVal: 0,
+        lastQuery: 0,
+        lastTouched: 0,
+        balance: '0'
       })
     } catch (err) {
-      if (err.message === 'Cannot update address that does not exist') {
-        await saveNewAddress()
+      if (err.message === 'Address already exists.') {
+        await processor.updateAddressByScriptPubkey(scriptPubkey, {
+          path,
+          used,
+        })
       } else {
         throw err
       }
     }
-  }
+  })
 }
 
 interface GetTotalAddressCountArgs {
@@ -542,7 +531,7 @@ const processAddressTransactions = async (args: ProcessAddressTxsArgs): Promise<
 
   for (const rawTx of transactions) {
     const tx = processRawTx({ ...args, tx: rawTx })
-    processor.saveTransaction(tx)
+    await processor.saveTransaction(tx)
   }
 
   if (page < totalPages) {
@@ -628,70 +617,71 @@ const processAddressUtxos = async (args: ProcessAddressUtxosArgs): Promise<void>
     return
   }
 
-  const oldUtxos = await processor.fetchUtxosByScriptPubkey(scriptPubkey)
-  const oldUtxoMap = oldUtxos.reduce<{ [id: string]: IUTXO }>((obj, utxo) => ({
-    ...obj,
-    [utxo.id]: utxo
-  }), {})
-  const accountUtxos = await blockBook.fetchAddressUtxos(address)
+  await processor.fetchUtxosByScriptPubkey(scriptPubkey, async (oldUtxos, { saveUtxo, removeUtxo }) => {
+    const oldUtxoMap = oldUtxos.reduce<{ [id: string]: IUTXO }>((obj, utxo) => ({
+      ...obj,
+      [utxo.id]: utxo
+    }), {})
+    const accountUtxos = await blockBook.fetchAddressUtxos(address)
 
-  let balance = '0'
+    let balance = '0'
 
-  for (const utxo of accountUtxos) {
-    const id = `${utxo.txid}_${utxo.vout}`
+    for (const utxo of accountUtxos) {
+      const id = `${utxo.txid}_${utxo.vout}`
 
-    // Any UTXOs listed in the oldUtxoMap after the for loop will be deleted from the database.
-    // If we do not already know about this UTXO, lets process it and add it to the database.
-    if (oldUtxoMap[id]) {
-      delete oldUtxoMap[id]
-      continue
+      // Any UTXOs listed in the oldUtxoMap after the for loop will be deleted from the database.
+      // If we do not already know about this UTXO, lets process it and add it to the database.
+      if (oldUtxoMap[id]) {
+        delete oldUtxoMap[id]
+        continue
+      }
+
+      let scriptType: ScriptTypeEnum
+      let script: string
+      let redeemScript: string | undefined
+      switch (currencyFormatToPurposeType(format)) {
+        case BIP43PurposeTypeEnum.Airbitz:
+        case BIP43PurposeTypeEnum.Legacy:
+          script = (await fetchTransaction({ ...args, txid: utxo.txid })).hex
+          scriptType = ScriptTypeEnum.p2pkh
+          break
+        case BIP43PurposeTypeEnum.WrappedSegwit:
+          script = scriptPubkey
+          scriptType = ScriptTypeEnum.p2wpkhp2sh
+          redeemScript = walletTools.getScriptPubkey(addressData.path!).redeemScript
+          break
+        case BIP43PurposeTypeEnum.Segwit:
+          script = scriptPubkey
+          scriptType = ScriptTypeEnum.p2wpkh
+          break
+      }
+
+      balance = bs.add(balance, utxo.value)
+
+      await saveUtxo({
+        id,
+        txid: utxo.txid,
+        vout: utxo.vout,
+        value: utxo.value,
+        scriptPubkey,
+        script,
+        redeemScript,
+        scriptType,
+        blockHeight: utxo.height ?? 0
+      })
     }
 
-    let scriptType: ScriptTypeEnum
-    let script: string
-    let redeemScript: string | undefined
-    switch (currencyFormatToPurposeType(format)) {
-      case BIP43PurposeTypeEnum.Airbitz:
-      case BIP43PurposeTypeEnum.Legacy:
-        script = (await fetchTransaction({ ...args, txid: utxo.txid })).hex
-        scriptType = ScriptTypeEnum.p2pkh
-        break
-      case BIP43PurposeTypeEnum.WrappedSegwit:
-        script = scriptPubkey
-        scriptType = ScriptTypeEnum.p2wpkhp2sh
-        redeemScript = walletTools.getScriptPubkey(addressData.path).redeemScript
-        break
-      case BIP43PurposeTypeEnum.Segwit:
-        script = scriptPubkey
-        scriptType = ScriptTypeEnum.p2wpkh
-        break
+    for (const id in oldUtxoMap) {
+      await removeUtxo(oldUtxoMap[id])
     }
 
-    balance = bs.add(balance, utxo.value)
+    const oldBalance = addressData?.balance ?? '0'
+    const diff = bs.sub(balance, oldBalance)
+    if (diff !== '0') {
+      const newWalletBalance = bs.add(metadata.balance, diff)
+      emitter.emit(EmitterEvent.BALANCE_CHANGED, currencyInfo.currencyCode, newWalletBalance)
 
-    processor.saveUtxo({
-      id,
-      txid: utxo.txid,
-      vout: utxo.vout,
-      value: utxo.value,
-      scriptPubkey,
-      script,
-      redeemScript,
-      scriptType,
-      blockHeight: utxo.height ?? 0
-    })
-  }
-
-  for (const id in oldUtxoMap) {
-    processor.removeUtxo(oldUtxoMap[id])
-  }
-
-  const oldBalance = addressData?.balance ?? '0'
-  const diff = bs.sub(balance, oldBalance)
-  if (diff !== '0') {
-    const newWalletBalance = bs.add(metadata.balance, diff)
-    emitter.emit(EmitterEvent.BALANCE_CHANGED, currencyInfo.currencyCode, newWalletBalance)
-
-    await processor.updateAddressByScriptPubkey(scriptPubkey, { balance })
-  }
+      await processor.updateAddressByScriptPubkey(scriptPubkey, { balance })
+    }
+  })
 }

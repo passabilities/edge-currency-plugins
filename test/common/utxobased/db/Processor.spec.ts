@@ -43,14 +43,18 @@ describe('Processor', function() {
     await processor.insertTxIdByBlockHeight(0, 'this')
     await processor.insertTxIdByBlockHeight(0, 'that')
     await processor.insertTxIdByBlockHeight(1, 'whatever')
+
     let zeroConf = await processor.fetchTxIdsByBlockHeight(0)
+    zeroConf.should.include.members([ 'that', 'this' ])
+
     const oneConf = await processor.fetchTxIdsByBlockHeight(1)
+    oneConf[0].should.equal('whatever')
+
     const allConf = await processor.fetchTxIdsByBlockHeight(0, 1)
-    expect(zeroConf).to.eql(['that', 'this'])
-    expect(oneConf[0]).to.eql('whatever')
-    expect(allConf).to.eql(['that', 'this', 'whatever'])
+    allConf.should.include.members(['that', 'this', 'whatever'])
+
     await processor.removeTxIdByBlockHeight(0, 'this')
     zeroConf = await processor.fetchTxIdsByBlockHeight(0)
-    expect(zeroConf).to.eql(['that'])
+    zeroConf.should.include.members(['that'])
   })
 })
