@@ -102,7 +102,7 @@ interface IUTXO {
   lockTime?: number
 }
 
-interface IAccountUTXO extends IUTXO {
+export interface IAccountUTXO extends IUTXO {
   address?: string
   path?: string
 }

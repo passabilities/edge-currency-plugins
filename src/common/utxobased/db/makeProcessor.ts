@@ -69,22 +69,14 @@ export interface Processor {
 
   fetchUtxo(id: string): Promise<UtxoById>
 
-  fetchUtxosByScriptPubkey(scriptPubkey: string, lockFn?: FetchUtxosLockFn): Promise<IUTXO[]>
+  fetchUtxosByScriptPubkey(scriptPubkey: string): Promise<IUTXO[]>
 
   fetchAllUtxos(): Promise<IUTXO[]>
 
   saveUtxo(utxo: IUTXO): Promise<void>
 
-  removeUtxo(utxo: IUTXO): Promise<void>
+  removeUtxo(id: string): Promise<IUTXO>
 }
-
-type FetchUtxosLockFn = (
-  utxos: IUTXO[],
-  fns: {
-    saveUtxo: Processor['saveUtxo']
-    removeUtxo: Processor['removeUtxo']
-  }
-) => Promise<void>
 
 export async function makeProcessor(config: ProcessorConfig): Promise<Processor> {
   const {
@@ -335,7 +327,7 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
       return utxo
     },
 
-    async fetchUtxosByScriptPubkey(scriptPubkey: string, lockFn?: FetchUtxosLockFn): Promise<IUTXO[]> {
+    async fetchUtxosByScriptPubkey(scriptPubkey: string): Promise<IUTXO[]> {
       // Lock UTXO tables
       return baselets.utxo(async (tables) => {
         const { utxoIdsByScriptPubkey, utxoById } = tables
@@ -345,23 +337,16 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
 
         const fns = {
           saveUtxo: (utxo: IUTXO) => saveUtxo({ tables, utxo }),
-          removeUtxo: (utxo: IUTXO) => deleteUtxo({ tables, utxo }),
+          removeUtxo: (id: string) => deleteUtxo({ tables, id }),
         }
 
         // Short circuit querying database
         if (ids.length === 0) {
-          await lockFn?.([], fns)
           return []
         }
 
         // Fetch all UTXOs from IDs
-        const utxos = await utxoById.query('', ids)
-
-        // If function passed call with UTXOs
-        await lockFn?.(utxos, fns)
-
-        // Return all UTXO data
-        return utxos
+        return await utxoById.query('', ids)
       })
     },
 
@@ -387,11 +372,11 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
       })
     },
 
-    async removeUtxo(utxo: IUTXO): Promise<void> {
+    async removeUtxo(id: string): Promise<IUTXO> {
       // Lock UTXO tables
-      await baselets.utxo(async (tables) => {
-        await deleteUtxo({ tables, utxo })
-      })
+      return baselets.utxo(async (tables) =>
+        deleteUtxo({ tables, id })
+      )
     }
   }
 
@@ -1020,7 +1005,7 @@ interface SaveTxIdByBlockHeightArgs {
 }
 
 /**
- * Add an index for transactions by block height.
+ * Add an index for a transaction by block height.
  * @param args {SaveTxIdByBlockHeightArgs}
  */
 const saveTxIdByBlockHeight = async (args: SaveTxIdByBlockHeightArgs): Promise<void> => {
@@ -1047,6 +1032,10 @@ interface DeleteTxIdByBlockHeightArgs {
   blockHeight: number
 }
 
+/**
+ * Remove the index for a transaction by block height.
+ * @param args {DeleteTxIdByBlockHeightArgs}
+ */
 const deleteTxIdByBlockHeight = async (args: DeleteTxIdByBlockHeightArgs): Promise<void> => {
   const {
     tables,
@@ -1095,25 +1084,33 @@ const saveUtxo = async (args: SaveUtxoArgs): Promise<void> => {
 
 interface DeleteUtxoArgs {
   tables: UTXOTables
-  utxo: IUTXO
+  id: string
 }
 
 /**
  * Deletes a UTXO and its indices.
  * @param args {DeleteUtxoArgs}
+ * @returns The deleted UTXO data
  */
-const deleteUtxo = async (args: DeleteUtxoArgs) => {
+const deleteUtxo = async (args: DeleteUtxoArgs): Promise<IUTXO> => {
   const {
     tables,
-    utxo
+    id
   } = args
 
+  // Fetch the UTXO data
+  const [ utxo ] = await tables.utxoById.query('', [ id ])
+  const { scriptPubkey, value } = utxo
+
   // Delete UTXO data
-  await tables.utxoById.delete('', [ utxo.id ])
+  await tables.utxoById.delete('', [ id ])
 
   // Delete index for size of value
-  await tables.utxoIdsBySize.delete('', parseInt(utxo.value), utxo.id)
+  await tables.utxoIdsBySize.delete('', parseInt(value), id)
 
   // Delete index for script pubkey
-  await tables.utxoIdsByScriptPubkey.delete('', [ utxo.scriptPubkey ])
+  await tables.utxoIdsByScriptPubkey.delete('', [ scriptPubkey ])
+
+  // Return the deleted UTXO
+  return utxo
 }

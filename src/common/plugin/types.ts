@@ -63,7 +63,7 @@ export interface Emitter {
 
   emit(event: EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, transaction: IProcessorTransaction): this
 
-  emit(event: EmitterEvent.BALANCE_CHANGED, currencyCode: string, nativeBalance: string): this
+  emit(event: EmitterEvent.BALANCE_CHANGED, currencyCode: string, balanceDiff: string): this
 
   emit(event: EmitterEvent.BLOCK_HEIGHT_CHANGED, blockHeight: number): this
 
@@ -75,7 +75,7 @@ export interface Emitter {
 
   on(event: EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, listener: (transaction: IProcessorTransaction) => void): this
 
-  on(event: EmitterEvent.BALANCE_CHANGED, listener: (currencyCode: string, nativeBalance: string) => void): this
+  on(event: EmitterEvent.BALANCE_CHANGED, listener: (currencyCode: string, balanceDiff: string) => void): this
 
   on(event: EmitterEvent.BLOCK_HEIGHT_CHANGED, listener: (blockHeight: number) => void): this
 
