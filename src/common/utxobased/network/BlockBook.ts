@@ -1,6 +1,17 @@
 import { EdgeTransaction } from 'edge-core-js'
 
 import { Emitter, EmitterEvent } from '../../plugin/types'
+import {
+  addressMessage,
+  addressUtxosMessage,
+  broadcastTxMessage,
+  infoMessage,
+  PartialTask,
+  pingMessage,
+  subscribeAddressesMessage,
+  subscribeNewBlockMessage,
+  transactionMessage
+} from './BlockBookAPI'
 import { makeSocket, potentialWsTask, WsTask } from './Socket'
 
 export interface INewTransactionResponse {
@@ -198,12 +209,9 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
     instance.isConnected = false
   }
 
-  async function promisifyWsMessage<T>(
-    method: string,
-    params?: object
-  ): Promise<T> {
+  async function promisifyWsMessage<T>(message: PartialTask): Promise<T> {
     return await new Promise((resolve, reject) => {
-      sendWsMessage({ method, params, resolve, reject })
+      sendWsMessage({ ...message, resolve, reject })
     })
   }
 
@@ -212,31 +220,18 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
   }
 
   async function ping(): Promise<object> {
-    return await promisifyWsMessage('ping')
+    return await promisifyWsMessage(pingMessage())
   }
 
   async function fetchInfo(): Promise<IServerInfo> {
-    return await promisifyWsMessage('getInfo')
+    return await promisifyWsMessage(infoMessage())
   }
 
   async function fetchAddress(
     address: string,
     opts: IAccountOpts = {}
   ): Promise<any> {
-    opts = Object.assign(
-      {},
-      {
-        details: 'basic',
-        page: 1,
-        perPage: 100
-      },
-      opts
-    )
-
-    return await promisifyWsMessage('getAccountInfo', {
-      ...opts,
-      descriptor: address
-    })
+    return await promisifyWsMessage(addressMessage(address, opts))
   }
 
   async function watchBlocks(cb: Callback): Promise<void> {
@@ -246,8 +241,7 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
       emitter.emit(EmitterEvent.BLOCK_HEIGHT_CHANGED, value.height)
     }
     socket.subscribe({
-      method: 'subscribeNewBlock',
-      params: {},
+      ...subscribeNewBlockMessage(),
       cb: socketCb
     })
   }
@@ -257,22 +251,21 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
     cb: (response: INewTransactionResponse) => void
   ): void {
     socket.subscribe({
-      method: 'subscribeAddresses',
-      params: { addresses },
+      ...subscribeAddressesMessage(addresses),
       cb
     })
   }
 
   async function fetchAddressUtxos(account: string): Promise<IAccountUTXO[]> {
-    return await promisifyWsMessage('getAccountUtxo', { descriptor: account })
+    return await promisifyWsMessage(addressUtxosMessage(account))
   }
 
   async function fetchTransaction(hash: string): Promise<ITransaction> {
-    return await promisifyWsMessage('getTransaction', { txid: hash })
+    return await promisifyWsMessage(transactionMessage(hash))
   }
 
   async function broadcastTx(transaction: EdgeTransaction): Promise<void> {
-    await promisifyWsMessage('sendTransaction', { hex: transaction.signedTx })
+    await promisifyWsMessage(broadcastTxMessage(transaction))
   }
 
   return instance

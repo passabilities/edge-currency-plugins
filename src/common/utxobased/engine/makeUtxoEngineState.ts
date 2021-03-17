@@ -10,7 +10,7 @@ import {
   EngineCurrencyInfo,
   NetworkEnum,
 } from '../../plugin/types'
-import { BlockBook, IAccountUTXO, ITransaction } from '../network/BlockBook'
+import { BlockBook, IAccountUTXO, IAccountDetailsBasic, ITransactionIdPaginationResponse, ITransaction } from '../network/BlockBook'
 import { IAddress, IProcessorTransaction, IUTXO } from '../db/types'
 import { BIP43PurposeTypeEnum, ScriptTypeEnum } from '../keymanager/keymanager'
 import { Processor } from '../db/makeProcessor'
@@ -27,6 +27,8 @@ import { makeMutexor, Mutexor } from './mutexor'
 import { BLOCKBOOK_TXS_PER_PAGE, CACHE_THROTTLE } from './constants'
 import { BLOCKBOOK_TXS_PER_PAGE } from './constants'
 import { overArgs } from 'lodash'
+import { addressMessage, subscribeAddressesMessage } from '../network/BlockBookAPI'
+import { WsTask } from '../network/Socket'
 
 export interface UtxoEngineState {
   start(): Promise<void>
@@ -250,29 +252,137 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
         scriptPubkey,
         path
       })
+
+      addressCache.set(address, {
+        address,
+        state: AddressProcessEnum.NeedAddressSubscribe
+      })
     }
   })
 }
 
-const pickNextTask = (uri: string): WsTask | void {
-  addressCache.forEach((value, key) => {
-    if (!value.processed) {
-      // processAddress({ ...value })
-      const firstProcess = !addressesToWatch.has(value.address)
-      if (firstProcess) {
-        addressesToWatch.add(address)
-        value.process = true
-        return BLOCKBOOK_TXS_PER_PAGE.watchAddresses(Array.from(addressesToWatch), async(response) => {
-          setLookAhead(args)
-          processAddress({ ...overArgs, address: response.address })
-        })
-      }
-    }
-    if (value.processed) {
+// setLookAhead(){
+//   processAddress() {
+//       blockbook.watchAddresses();
+//       processAddressTransactions() {
+//           blockbook.fetchAddress();
+//           processAddressTransactions();
+//       }
+//       processAddressUtxos() {
+//           blockbook.fetchAddressUtxos()
+//           fetchTransaction() {
+//               blockbook.fetchTransaction()
+//           }
+//       }
+//   }
+// }
 
+export const someFunc = async (): Promise<void> => {
+  let empty
+  let resolveFunc
+  const promise4 = new Promise((resolve, reject) => {
+    empty = 'lol4'
+    resolveFunc = resolve
+  }).then(() => {
+    console.log('lol')
+  })
+  console.log(empty)
+  resolveFunc()
+  await promise4
+}
+
+const addressesToWatch = new Set<string>()
+const addressCache: Map<string, AddressCache> = new Map()
+
+enum AddressProcessEnum {
+  NeedAddressSubscribe,
+  NeedProcessTransaction,
+  NeedProcessUtxos,
+  NeedFetchTransaction,
+  ProcessingDone
+}
+interface AddressCache {
+  address: string
+  state: AddressProcessEnum
+}
+
+export const pickNextTask = (args: FormatArgs, uri: string): WsTask | void => {
+  // TODO: remove this!
+  const page = 1
+  addressCache.forEach((value, key) => {
+    // watch address
+    if (value.state === AddressProcessEnum.NeedAddressSubscribe) {
+      if (!addressesToWatch.has(value.address)) {
+        addressesToWatch.add(value.address)
+        let wsTask: WsTask
+        // eslint-disable-next-line no-void
+        void new Promise((resolve, reject) => {
+          wsTask = {
+            ...subscribeAddressesMessage(Array.from(addressesToWatch)),
+            resolve,
+            reject
+          }
+        }).then(async () => {
+          await setLookAhead(args)
+        })
+        return wsTask
+      }
+    } else {
+      value.state = AddressProcessEnum.NeedProcessTransaction
     }
-    processAddressTransactions(args)
-    processAddressUtxos(args)
+    // processAddressTransactions(args)
+    if (value.state === AddressProcessEnum.NeedProcessTransaction) {
+      const { page = 1, processor, walletTools } = args
+      const scriptPubkey = walletTools.addressToScriptPubkey(value.address)
+      const addressData = await processor.fetchAddressByScriptPubkey(
+        scriptPubkey
+      )
+      let networkQueryVal = args.networkQueryVal ?? addressData?.networkQueryVal
+      let wsTask: WsTask
+      // eslint-disable-next-line no-void
+      void new Promise<IAccountDetailsBasic & ITransactionIdPaginationResponse>(
+        (resolve, reject) => {
+          wsTask = {
+            ...addressMessage(value.address, {
+              details: 'txs',
+              from: networkQueryVal,
+              perPage: BLOCKBOOK_TXS_PER_PAGE,
+              page
+            }),
+            resolve,
+            reject
+          }
+        }
+      ).then(async value => {
+        const { transactions = [], txs, unconfirmedTxs, totalPages } = value
+        // If address is used and previously not marked as used, mark as used.
+        const used = txs > 0 || unconfirmedTxs > 0
+        if (used && !addressData?.used && page === 1) {
+          await processor.updateAddressByScriptPubkey(scriptPubkey, {
+            used
+          })
+        }
+
+        for (const rawTx of transactions) {
+          const tx = processRawTx({ ...args, tx: rawTx })
+          await processor.saveTransaction(tx)
+        }
+
+        if (page < totalPages) {
+          value.state = AddressProcessEnum.NeedProcessTransaction
+          args.page = args.page + 1
+          // await processAddressTransactions({
+          //   ...args,
+          //   page: page + 1,
+          //   networkQueryVal
+          // })
+        } else {
+          value.state = AddressProcessEnum.NeedProcessUtxos
+        }
+      })
+      return wsTask
+    }
+    // processAddressUtxos(args)
   })
 }
 
