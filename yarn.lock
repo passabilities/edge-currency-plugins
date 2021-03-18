@@ -1451,12 +1451,12 @@ async-limiter@~1.0.0:
   resolved "https://registry.yarnpkg.com/async-limiter/-/async-limiter-1.0.1.tgz#dd379e94f0db8310b08291f9d64c3209766617fd"
   integrity sha512-csOlWGAcRFJaI6m+F2WKdnMKr4HhdhFVBk0H/QbJFMCr+uO2kwohwXQPxw/9OCxp05r5ghVBFSyioixx3gfkNQ==
 
-async-mutex@^0.2.6:
-  version "0.2.6"
-  resolved "https://registry.yarnpkg.com/async-mutex/-/async-mutex-0.2.6.tgz#0d7a3deb978bc2b984d5908a2038e1ae2e54ff40"
-  integrity sha512-Hs4R+4SPgamu6rSGW8C7cV9gaWUKEHykfzCCvIRuaVv636Ju10ZdeUbvb4TBEW0INuq2DHZqXbK4Nd3yG4RaRw==
+async-mutex@^0.3.1:
+  version "0.3.1"
+  resolved "https://registry.yarnpkg.com/async-mutex/-/async-mutex-0.3.1.tgz#7033af665f1c7cebed8b878267a43ba9e77c5f67"
+  integrity sha512-vRfQwcqBnJTLzVQo72Sf7KIUbcSUP5hNchx6udI1U6LuPQpfePgdjJzlCe76yFZ8pxlLjn9lwcl/Ya0TSOv0Tw==
   dependencies:
-    tslib "^2.0.0"
+    tslib "^2.1.0"
 
 asynckit@^0.4.0:
   version "0.4.0"
@@ -2081,10 +2081,10 @@ clean-stack@^2.0.0:
   resolved "https://registry.yarnpkg.com/clean-stack/-/clean-stack-2.2.0.tgz#ee8472dbb129e727b31e8a10a427dee9dfe4008b"
   integrity sha512-4diC9HaTE+KRAMWhDhrGOECgWZxoevMc5TlkObMqNSsVU62PYzXZ/SMTjzyGAFF1YusgxGcSWTEXBhp0CPwQ1A==
 
-cleaners@^0.3.2:
-  version "0.3.2"
-  resolved "https://registry.yarnpkg.com/cleaners/-/cleaners-0.3.2.tgz#e240a3837f5b2d59975f18d753dea7d1bab0fd4b"
-  integrity sha512-SOjd7UOrU/8CF6V7QKZsfJB8MIBylrZOso+eJWYFaOm2jamKj7Wxbihg8vasnHzqtagv1vpwhN8xkD3liX/dIg==
+cleaners@^0.3.7:
+  version "0.3.7"
+  resolved "https://registry.yarnpkg.com/cleaners/-/cleaners-0.3.7.tgz#b8fa056a430974d1125a1bb523ee128a6763fbfd"
+  integrity sha512-pRzWeIOXnbgJa211YAHjU1zW1kFMCdftJrB6DJC98nRAcd5XepWy0sAmvZ3kuh1g0y9gukRNSCli0+8aVNhwRg==
 
 cli-cursor@^2.1.0:
   version "2.1.0"
@@ -2825,15 +2825,14 @@ ecc-jsbn@~0.1.1:
     jsbn "~0.1.0"
     safer-buffer "^2.1.0"
 
-edge-core-js@^0.17.22:
-  version "0.17.22"
-  resolved "https://registry.yarnpkg.com/edge-core-js/-/edge-core-js-0.17.22.tgz#eb742439aab5b579bc1a1f0e3d2815915f672416"
-  integrity sha512-F8p10+Ywxf968AwXLkjJswGbJ8EKPFT8v9jKw3ugafoHCqaJTR/CoPP7FPVomLb7UlzzBg1WOivIICzOe8yzAQ==
+"edge-core-js@git://github.com/EdgeApp/edge-core-js.git#noah/engine-dump-type":
+  version "0.17.26"
+  resolved "git://github.com/EdgeApp/edge-core-js.git#0a0fe098a773065b5ca854c09d5e91b1c5559693"
   dependencies:
     aes-js "^3.1.0"
     base-x "^1.0.4"
     biggystring "^3.0.2"
-    cleaners "^0.3.2"
+    cleaners "^0.3.7"
     currency-codes "^1.1.2"
     disklet "^0.4.5"
     elliptic "^6.4.0"
@@ -7374,7 +7373,7 @@ tslib@^1.8.1, tslib@^1.9.0:
   resolved "https://registry.yarnpkg.com/tslib/-/tslib-1.14.1.tgz#cf2d38bdc34a134bcaf1091c41f6619e2f672d00"
   integrity sha512-Xni35NKzjgMrwevysHTCArtLDpPvye8zV/0E4EyYn43P7/7qvQwPh9BGkHewbMulVntbigmcT7rdX3BNo9wRJg==
 
-tslib@^2.0.0:
+tslib@^2.1.0:
   version "2.1.0"
   resolved "https://registry.yarnpkg.com/tslib/-/tslib-2.1.0.tgz#da60860f1c2ecaa5703ab7d39bc05b6bf988b97a"
   integrity sha512-hcVC3wYEziELGGmEEXue7D75zbwIIVUMWAVbHItGPx0ziyXxrOMQx4rQEVEV45Ut/1IotuEvwqPopzIOkDMf0A==
