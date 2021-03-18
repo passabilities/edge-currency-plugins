@@ -31,16 +31,18 @@ export interface Socket {
   connect: () => Promise<void>
   disconnect: () => void
   submitTask: (task: WsTask) => void
+  onQueueSpace: (cb: OnQueueSpaceCB) => void
   subscribe: (subscription: WsSubscription) => void
   isConnected: () => boolean
 }
+
+export type OnQueueSpaceCB = () => void
 
 interface SocketConfig {
   queueSize?: number
   timeout?: number
   walletId?: string
   emitter: Emitter
-  onQueueSpace: () => potentialWsTask
   healthCheck: () => Promise<object> // function for heartbeat, should submit task itself
 }
 
@@ -51,9 +53,10 @@ interface WsMessage {
 
 export function makeSocket(uri: string, config: SocketConfig): Socket {
   let socket: InnerSocket | null
-  const { emitter, onQueueSpace, queueSize = 5, walletId = '' } = config
+  const { emitter, queueSize = 5, walletId = '' } = config
   const version = ''
   const subscriptions: Map<string, WsSubscription> = new Map()
+  let onQueueSpace: OnQueueSpaceCB | undefined
   let pendingMessages: Map<string, WsMessage> = new Map()
   let nextId = 0
   let lastKeepAlive = 0
@@ -121,6 +124,7 @@ export function makeSocket(uri: string, config: SocketConfig): Socket {
     })
 
     wakeUp()
+    setupTimer()
     cancelConnect = false
   }
 
@@ -133,12 +137,14 @@ export function makeSocket(uri: string, config: SocketConfig): Socket {
     })
   }
 
-  const doWakeUp = (): void => {
+  const doWakeUp = async (): Promise<void> => {
     if (connected && version != null) {
       while (pendingMessages.size < queueSize) {
-        const task = onQueueSpace()
-        if (task.task == null) break
-        submitTask(task.task)
+        onQueueSpace?.()
+        await new Promise((resolve) => setTimeout(resolve, 100))
+        // const task = onQueueSpace()
+        // if (task.task == null) break
+        // submitTask(task.task)
       }
     }
   }
@@ -264,8 +270,6 @@ export function makeSocket(uri: string, config: SocketConfig): Socket {
     wakeUp()
   }
 
-  setupTimer()
-
   // return a Socket
   return {
     get readyState(): ReadyState {
@@ -308,6 +312,10 @@ export function makeSocket(uri: string, config: SocketConfig): Socket {
 
     submitTask(task: WsTask): void {
       submitTask(task)
+    },
+
+    onQueueSpace(cb: OnQueueSpaceCB): void {
+      onQueueSpace = cb
     },
 
     subscribe(subscription: WsSubscription): void {

@@ -12,7 +12,7 @@ import {
   subscribeNewBlockMessage,
   transactionMessage
 } from './BlockBookAPI'
-import { makeSocket, potentialWsTask, WsTask } from './Socket'
+import { makeSocket, OnQueueSpaceCB, potentialWsTask, WsTask } from './Socket'
 
 export interface INewTransactionResponse {
   address: string
@@ -40,7 +40,7 @@ interface ITransactionPaginationResponse {
   itemsOnPage: number
 }
 
-interface ITransactionIdPaginationResponse
+export interface ITransactionIdPaginationResponse
   extends ITransactionPaginationResponse {
   txids: string[]
 }
@@ -114,6 +114,8 @@ export interface BlockBook {
 
   disconnect: () => Promise<void>
 
+  onQueueSpace: (cb: OnQueueSpaceCB) => void
+
   fetchInfo: () => Promise<IServerInfo>
 
   fetchAddress: ((
@@ -164,13 +166,16 @@ interface BlockBookConfig {
 const baseUri = 'btc1.trezor.io'
 
 export function makeBlockBook(config: BlockBookConfig): BlockBook {
-  const emitter = config.emitter
-  const baseWSAddress = config.wsAddress ?? `wss://${baseUri}/websocket`
+  const {
+    emitter,
+    wsAddress = `wss://${baseUri}/websocket`
+  } = config
 
   const instance: BlockBook = {
     isConnected: false,
     connect,
     disconnect,
+    onQueueSpace,
     fetchInfo,
     fetchAddress,
     watchAddresses,
@@ -185,13 +190,9 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
     console.log(error)
   })
   emitter.on(EmitterEvent.CONNECTION_TIMER, (queryTime: number) => {})
-  const onQueueSpace = (): potentialWsTask => {
-    return {}
-  }
 
-  const socket = makeSocket(baseWSAddress, {
+  const socket = makeSocket(wsAddress, {
     healthCheck: ping,
-    onQueueSpace,
     emitter
   })
 
@@ -207,6 +208,10 @@ export function makeBlockBook(config: BlockBookConfig): BlockBook {
 
     socket.disconnect()
     instance.isConnected = false
+  }
+
+  function onQueueSpace(cb: OnQueueSpaceCB): void {
+    socket.onQueueSpace(cb)
   }
 
   async function promisifyWsMessage<T>(message: PartialTask): Promise<T> {

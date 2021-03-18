@@ -10,7 +10,7 @@ import {
   EngineCurrencyInfo,
   NetworkEnum,
 } from '../../plugin/types'
-import { BlockBook, IAccountUTXO, IAccountDetailsBasic, ITransactionIdPaginationResponse, ITransaction } from '../network/BlockBook'
+import { BlockBook, IAccountUTXO, ITransaction } from '../network/BlockBook'
 import { IAddress, IProcessorTransaction, IUTXO } from '../db/types'
 import { BIP43PurposeTypeEnum, ScriptTypeEnum } from '../keymanager/keymanager'
 import { Processor } from '../db/makeProcessor'
@@ -25,10 +25,6 @@ import {
 } from './utils'
 import { makeMutexor, Mutexor } from './mutexor'
 import { BLOCKBOOK_TXS_PER_PAGE, CACHE_THROTTLE } from './constants'
-import { BLOCKBOOK_TXS_PER_PAGE } from './constants'
-import { overArgs } from 'lodash'
-import { addressMessage, subscribeAddressesMessage } from '../network/BlockBookAPI'
-import { WsTask } from '../network/Socket'
 
 export interface UtxoEngineState {
   start(): Promise<void>
@@ -60,6 +56,11 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
   } = config
 
   const addressesToWatch = new Set<string>()
+  const addressQueue: AddressQueue = {
+    subscribe: new Map(),
+    transactions: new Map(),
+    utxos: new Map(),
+  }
 
   let processedCount = 0
   let processedPercent = 0
@@ -67,7 +68,7 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
     processedCount = processedCount + 1
     const totalCount = await getTotalAddressCount({ walletInfo, currencyInfo, processor })
     const percent = processedCount / totalCount
-    console.log(percent + '%', processedCount)
+    console.log(percent)
     if (percent - processedPercent > CACHE_THROTTLE || percent === 1) {
       processedPercent = percent
       emitter.emit(EmitterEvent.ADDRESSES_CHECKED, percent)
@@ -85,37 +86,23 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
     blockBook,
     emitter,
     addressesToWatch,
+    addressQueue,
     onAddressChecked,
     mutexor,
   }
 
-  let running = false
-  const run = async () => {
-    if (running) return
-    running = true
-
-    const formatsToProcess = getWalletSupportedFormats(walletInfo)
-    for (const format of formatsToProcess) {
-      const branches = getFormatSupportedBranches(format)
-      for (const branch of branches) {
-        const args: SetLookAheadArgs = {
-          ...commonArgs,
-          format,
-          branch,
-        }
-        await setLookAhead(args)
-      }
-    }
-  }
+  run(commonArgs, setLookAhead)
 
   return {
     async start(): Promise<void> {
       processedCount = 0
       processedPercent = 0
 
+      blockBook.onQueueSpace(() => pickNextTask(commonArgs))
       blockBook.watchBlocks(() => onNewBlock(commonArgs))
 
-      await run()
+      await run(commonArgs, setLookAhead)
+      await run(commonArgs, processFormatAddresses)
     },
 
     async stop(): Promise<void> {
@@ -162,14 +149,14 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
     },
 
     async addGapLimitAddresses(addresses: string[]): Promise<void> {
-      for (const addr of addresses) {
+      for (const address of addresses) {
         await saveAddress({
           ...commonArgs,
-          scriptPubkey: walletTools.addressToScriptPubkey(addr),
+          address,
           used: true,
         })
       }
-      await run()
+      await run(commonArgs, setLookAhead)
     }
   }
 }
@@ -183,8 +170,45 @@ interface CommonArgs {
   blockBook: BlockBook
   emitter: Emitter
   addressesToWatch: Set<string>
+  addressQueue: AddressQueue
   onAddressChecked: () => void
   mutexor: Mutexor
+}
+
+const run = async (args: CommonArgs, executor: (args: FormatArgs) => any) => {
+  const formatsToProcess = getWalletSupportedFormats(args.walletInfo)
+  for (const format of formatsToProcess) {
+    const branches = getFormatSupportedBranches(format)
+    for (const branch of branches) {
+      await executor({
+        ...args,
+        format,
+        branch,
+      })
+    }
+  }
+}
+
+interface AddressQueue {
+  subscribe: Map<string, { format: CurrencyFormat, branch: number } | undefined>
+  utxos: Map<string, AddressUtxoQueueState>
+  transactions: Map<string, AddressTransactionQueueState>
+}
+interface AddressUtxoQueueState {
+  fetching: boolean
+  path: {
+    format: CurrencyFormat
+    branch: number
+  }
+}
+interface AddressTransactionQueueState {
+  fetching: boolean
+  path: {
+    format: CurrencyFormat
+    branch: number
+  }
+  page: number
+  networkQueryVal: number
 }
 
 interface OnNewBlockArgs extends CommonArgs {
@@ -229,6 +253,7 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
     walletTools,
     processor,
     mutexor,
+    addressQueue,
   } = args
 
   await mutexor(`setLookAhead-${format}-${branch}`).runExclusive(async () => {
@@ -246,17 +271,13 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
         addressIndex: getAddressCount()
       }
       const { address } = walletTools.getAddress(path)
-      const scriptPubkey = walletTools.addressToScriptPubkey(address)
       await saveAddress({
         ...args,
-        scriptPubkey,
+        address,
         path
       })
 
-      addressCache.set(address, {
-        address,
-        state: AddressProcessEnum.NeedAddressSubscribe
-      })
+      addressQueue.subscribe.set(address, { format, branch })
     }
   })
 }
@@ -277,158 +298,155 @@ const setLookAhead = async (args: SetLookAheadArgs) => {
 //   }
 // }
 
-export const someFunc = async (): Promise<void> => {
-  let empty
-  let resolveFunc
-  const promise4 = new Promise((resolve, reject) => {
-    empty = 'lol4'
-    resolveFunc = resolve
-  }).then(() => {
-    console.log('lol')
-  })
-  console.log(empty)
-  resolveFunc()
-  await promise4
-}
-
-const addressesToWatch = new Set<string>()
-const addressCache: Map<string, AddressCache> = new Map()
-
-enum AddressProcessEnum {
-  NeedAddressSubscribe,
-  NeedProcessTransaction,
-  NeedProcessUtxos,
-  NeedFetchTransaction,
-  ProcessingDone
-}
-interface AddressCache {
-  address: string
-  state: AddressProcessEnum
-}
-
-export const pickNextTask = (args: FormatArgs, uri: string): WsTask | void => {
-  // TODO: remove this!
-  const page = 1
-  addressCache.forEach((value, key) => {
-    // watch address
-    if (value.state === AddressProcessEnum.NeedAddressSubscribe) {
-      if (!addressesToWatch.has(value.address)) {
-        addressesToWatch.add(value.address)
-        let wsTask: WsTask
-        // eslint-disable-next-line no-void
-        void new Promise((resolve, reject) => {
-          wsTask = {
-            ...subscribeAddressesMessage(Array.from(addressesToWatch)),
-            resolve,
-            reject
-          }
-        }).then(async () => {
-          await setLookAhead(args)
-        })
-        return wsTask
-      }
-    } else {
-      value.state = AddressProcessEnum.NeedProcessTransaction
-    }
-    // processAddressTransactions(args)
-    if (value.state === AddressProcessEnum.NeedProcessTransaction) {
-      const { page = 1, processor, walletTools } = args
-      const scriptPubkey = walletTools.addressToScriptPubkey(value.address)
-      const addressData = await processor.fetchAddressByScriptPubkey(
-        scriptPubkey
-      )
-      let networkQueryVal = args.networkQueryVal ?? addressData?.networkQueryVal
-      let wsTask: WsTask
-      // eslint-disable-next-line no-void
-      void new Promise<IAccountDetailsBasic & ITransactionIdPaginationResponse>(
-        (resolve, reject) => {
-          wsTask = {
-            ...addressMessage(value.address, {
-              details: 'txs',
-              from: networkQueryVal,
-              perPage: BLOCKBOOK_TXS_PER_PAGE,
-              page
-            }),
-            resolve,
-            reject
-          }
-        }
-      ).then(async value => {
-        const { transactions = [], txs, unconfirmedTxs, totalPages } = value
-        // If address is used and previously not marked as used, mark as used.
-        const used = txs > 0 || unconfirmedTxs > 0
-        if (used && !addressData?.used && page === 1) {
-          await processor.updateAddressByScriptPubkey(scriptPubkey, {
-            used
-          })
-        }
-
-        for (const rawTx of transactions) {
-          const tx = processRawTx({ ...args, tx: rawTx })
-          await processor.saveTransaction(tx)
-        }
-
-        if (page < totalPages) {
-          value.state = AddressProcessEnum.NeedProcessTransaction
-          args.page = args.page + 1
-          // await processAddressTransactions({
-          //   ...args,
-          //   page: page + 1,
-          //   networkQueryVal
-          // })
-        } else {
-          value.state = AddressProcessEnum.NeedProcessUtxos
-        }
-      })
-      return wsTask
-    }
-    // processAddressUtxos(args)
-  })
-}
-
-const processAddress = async (args: ProcessAddressArgs) => {
+export const pickNextTask = async (args: CommonArgs): Promise<void> => {
   const {
-    address,
+    processor,
+    walletTools,
+    addressesToWatch,
+    addressQueue,
+    onAddressChecked,
     blockBook,
-    addressesToWatch
   } = args
 
-  const firstProcess = !addressesToWatch.has(address)
-  if (firstProcess) {
-    addressesToWatch.add(address)
-    blockBook.watchAddresses(Array.from(addressesToWatch), async (response) => {
-      await setLookAhead(args)
-      await processAddress({ ...args, address: response.address })
+  const {
+    subscribe,
+    utxos,
+    transactions,
+  } = addressQueue
+
+  const addToUtxoQueue = async (address: string, format: CurrencyFormat, branch: number) => {
+    utxos.set(address, {
+      fetching: false,
+      path: {
+        format,
+        branch
+      },
     })
   }
 
-  await Promise.all([
-    processAddressTransactions(args),
-    processAddressUtxos(args)
-  ])
-}
+  const addToTransactionQueue = async (address: string, format: CurrencyFormat, branch: number) => {
+    // Fetch the networkQueryVal from the database
+    const scriptPubkey = walletTools.addressToScriptPubkey(address)
+    const { networkQueryVal = 0 } = await processor.fetchAddressByScriptPubkey(scriptPubkey) ?? {}
+    transactions.set(address, {
+      fetching: false,
+      path: {
+        format,
+        branch
+      },
+      page: 1, // Page starts on 1
+      networkQueryVal
+    })
+  }
 
-const addressCache: Map<string, AddressCache> = new Map()
+  // Check if there are any addresses pending to be subscribed
+  if (subscribe.size > 0) {
+    // Loop each address that needs to be subscribed
+    for (const [ address, path ] of subscribe) {
+      // Add address in the queue to the set of addresses to watch
+      addressesToWatch.add(address)
+      console.log('watching address', address)
 
-interface AddressCache extends FormatArgs {
-  address: string
-  processed: boolean
+      if (path) {
+        // Add the newly watch addresses to the UTXO queue
+        addToUtxoQueue(address, path.format, path.branch)
+        addToTransactionQueue(address, path.format, path.branch)
+      }
+    }
+
+    // Clear the queue
+    subscribe.clear()
+
+    // Watch all addresses then set look ahead
+    blockBook.watchAddresses(Array.from(addressesToWatch), async () => {
+    })
+
+    return
+  }
+
+  // Loop set to get the first one available
+  for (const [ address, state ] of utxos) {
+    // Check if we need to fetch address UTXOs
+    if (!state.fetching) {
+      state.fetching = true
+
+      // Remove address from queue
+      utxos.delete(address)
+      console.log('fetching address utxos', address)
+
+      // Fetch and process address UTXOs
+      return processAddressUtxos({ ...args, ...state.path, address })
+        // On success, add address to the transaction queue
+        .then(async () => {
+          await addToTransactionQueue(address, state.path.format, state.path.branch)
+          await setLookAhead({ ...args, ...state.path })
+        })
+        // On a failure, readd address to the queue
+        .catch((err) => {
+          // Set fetching flag to false
+          state.fetching = false
+          utxos.set(address, state)
+          console.log(`Failed to fetch UTXOs for address: ${address}`)
+        })
+    }
+  }
+
+  // Loop set to get the first one available
+  for (const [ address, state ] of transactions) {
+    // Check if we need to fetch address transactions
+    if (!state.fetching) {
+      state.fetching = true
+
+      // Remove address from set
+      transactions.delete(address)
+      console.log('fetching address transactions', address)
+
+      // Fetch and process address UTXOs
+      return processAddressTransactions({ ...args, ...state.path, address })
+        // On success, check if more pages exists
+        .then(async (hasMore) => {
+          if (hasMore) {
+            // Add the address back to the queue, incrementing the page
+            transactions.set(address, {
+              ...state,
+              fetching: false,
+              page: state.page + 1,
+            })
+          } else {
+            // Callback for when an address has been fully processed
+            onAddressChecked()
+
+            await setLookAhead({ ...args, ...state.path })
+          }
+        })
+        // On a failure, readd address to the queue
+        .catch((err) => {
+          // Set fetching flag to false
+          state.fetching = false
+          transactions.set(address, state)
+          console.log(`Failed to fetch transactions for address: ${address}`)
+        })
+    }
+  }
 }
 
 interface SaveAddressArgs extends CommonArgs {
-  scriptPubkey: string
+  address: string
   path?: AddressPath
   used?: boolean
 }
 
-const saveAddress = async (args: SaveAddressArgs, count = 0): Promise<void> => {
+const saveAddress = async (args: SaveAddressArgs): Promise<void> => {
   const {
-    scriptPubkey,
+    address,
     path,
     used = false,
     processor,
-    mutexor
+    walletTools,
+    mutexor,
   } = args
+
+  const scriptPubkey = walletTools.addressToScriptPubkey(address)
 
   await mutexor('saveAddress').runExclusive(async () => {
     try {
@@ -604,7 +622,9 @@ const processPathAddresses = async (args: ProcessPathAddressesArgs) => {
     walletTools,
     processor,
     format,
-    changeIndex
+    branch,
+    changeIndex,
+    addressQueue,
   } = args
 
   const addressCount = await processor.getNumAddressesFromPathPartition({ format, changeIndex })
@@ -621,37 +641,8 @@ const processPathAddresses = async (args: ProcessPathAddressesArgs) => {
       format
     })
 
-    await processAddress({ ...args, address })
+    addressQueue.subscribe.set(address, { format, branch })
   }
-}
-
-interface ProcessAddressArgs extends FormatArgs {
-  address: string
-}
-
-const processAddress = async (args: ProcessAddressArgs) => {
-  const {
-    address,
-    blockBook,
-    addressesToWatch,
-    onAddressChecked
-  } = args
-
-  const firstProcess = !addressesToWatch.has(address)
-  if (firstProcess) {
-    addressesToWatch.add(address)
-    blockBook.watchAddresses(Array.from(addressesToWatch), async (response) => {
-      await setLookAhead(args)
-      await processAddress({ ...args, address: response.address })
-    })
-  }
-
-  await Promise.all([
-    processAddressTransactions(args),
-    processAddressUtxos(args)
-  ])
-
-  firstProcess && onAddressChecked()
 }
 
 interface ProcessAddressTxsArgs extends FormatArgs {
@@ -660,7 +651,7 @@ interface ProcessAddressTxsArgs extends FormatArgs {
   networkQueryVal?: number
 }
 
-const processAddressTransactions = async (args: ProcessAddressTxsArgs): Promise<void> => {
+const processAddressTransactions = async (args: ProcessAddressTxsArgs): Promise<boolean> => {
   const {
     address,
     page = 1,
@@ -698,13 +689,8 @@ const processAddressTransactions = async (args: ProcessAddressTxsArgs): Promise<
     await processor.saveTransaction(tx)
   }
 
-  if (page < totalPages) {
-    await processAddressTransactions({
-      ...args,
-      page: page + 1,
-      networkQueryVal
-    })
-  }
+  // Return true if there are more pages to fetch
+  return page < totalPages
 }
 
 interface ProcessRawTxArgs extends CommonArgs {
