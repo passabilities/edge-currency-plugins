@@ -158,13 +158,13 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
     },
 
     async addGapLimitAddresses(addresses: string[]): Promise<void> {
-      await Promise.all(addresses.map(async (addr) => {
-        return saveAddress({
+      for (const addr of addresses) {
+        await saveAddress({
           ...commonArgs,
           scriptPubkey: walletTools.addressToScriptPubkey(addr),
           used: true,
         })
-      }))
+      }
       await run()
     }
   }

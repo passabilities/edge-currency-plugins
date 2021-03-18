@@ -291,6 +291,9 @@ export async function makeProcessor(config: ProcessorConfig): Promise<Processor>
         })
       )
 
+      // Emit event that the transaction was updated
+      emitter.emit(EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, tx)
+
       // Lock address tables
       await baselets.address(async (tables) => {
         // Update relevant address data
