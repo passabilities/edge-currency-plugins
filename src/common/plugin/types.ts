@@ -63,7 +63,9 @@ export interface Emitter {
 
   emit(event: EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, transaction: IProcessorTransaction): this
 
-  emit(event: EmitterEvent.BALANCE_CHANGED, currencyCode: string, balanceDiff: string): this
+  emit(event: EmitterEvent.ADDRESS_BALANCE_CHANGED, currencyCode: string, nativeAmount: string): this
+
+  emit(event: EmitterEvent.WALLET_BALANCE_CHANGED, currencyCode: string, balanceDiff: string): this
 
   emit(event: EmitterEvent.BLOCK_HEIGHT_CHANGED, blockHeight: number): this
 
@@ -75,7 +77,9 @@ export interface Emitter {
 
   on(event: EmitterEvent.PROCESSOR_TRANSACTION_CHANGED, listener: (transaction: IProcessorTransaction) => void): this
 
-  on(event: EmitterEvent.BALANCE_CHANGED, listener: (currencyCode: string, balanceDiff: string) => void): this
+  on(event: EmitterEvent.ADDRESS_BALANCE_CHANGED, listener: (currencyCode: string, nativeAmount: string) => void): this
+
+  on(event: EmitterEvent.WALLET_BALANCE_CHANGED, listener: (currencyCode: string, balanceDiff: string) => void): this
 
   on(event: EmitterEvent.BLOCK_HEIGHT_CHANGED, listener: (blockHeight: number) => void): this
 
@@ -87,7 +91,8 @@ export interface Emitter {
 export enum EmitterEvent {
   TRANSACTIONS_CHANGED = 'transactions:changed',
   PROCESSOR_TRANSACTION_CHANGED = 'processor:transactions:changed',
-  BALANCE_CHANGED = 'balance:changed',
+  ADDRESS_BALANCE_CHANGED = 'address:balance:changed',
+  WALLET_BALANCE_CHANGED = 'wallet:balance:changed',
   BLOCK_HEIGHT_CHANGED = 'block:height:changed',
   ADDRESSES_CHECKED = 'addresses:checked',
   TXIDS_CHANGED = 'txids:changed'

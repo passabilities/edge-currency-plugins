@@ -657,7 +657,7 @@ const processAddressUtxos = async (args: ProcessAddressUtxosArgs): Promise<void>
 
     const diff = bs.sub(newBalance, oldBalance)
     if (diff !== '0') {
-      emitter.emit(EmitterEvent.BALANCE_CHANGED, currencyInfo.currencyCode, diff)
+      emitter.emit(EmitterEvent.ADDRESS_BALANCE_CHANGED, currencyInfo.currencyCode, diff)
 
       await processor.updateAddressByScriptPubkey(scriptPubkey, {
         balance: newBalance,

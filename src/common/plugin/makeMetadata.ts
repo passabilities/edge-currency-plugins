@@ -21,9 +21,10 @@ export const makeMetadata = async (config: MetadataConfig): Promise<LocalWalletM
 
   const cache: LocalWalletMetadata = await fetchMetadata(disklet)
 
-  emitter.on(EmitterEvent.BALANCE_CHANGED, async (currencyCode: string, balanceDiff: string) => {
+  emitter.on(EmitterEvent.ADDRESS_BALANCE_CHANGED, async (currencyCode: string, balanceDiff: string) => {
     await mutex.runExclusive(async () => {
       cache.balance = bs.add(cache.balance, balanceDiff)
+      emitter.emit(EmitterEvent.WALLET_BALANCE_CHANGED, currencyCode, cache.balance)
       await setMetadata(disklet, cache)
     })
   })

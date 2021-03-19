@@ -27,7 +27,7 @@ export function makeCurrencyPlugin(
     ): Promise<EdgeCurrencyEngine> {
       const emitter: Emitter = new EventEmitter() as any
       emitter.on(EmitterEvent.TRANSACTIONS_CHANGED, engineOptions.callbacks.onTransactionsChanged)
-      emitter.on(EmitterEvent.BALANCE_CHANGED, engineOptions.callbacks.onBalanceChanged)
+      emitter.on(EmitterEvent.WALLET_BALANCE_CHANGED, engineOptions.callbacks.onBalanceChanged)
       emitter.on(EmitterEvent.BLOCK_HEIGHT_CHANGED, engineOptions.callbacks.onBlockHeightChanged)
       emitter.on(EmitterEvent.ADDRESSES_CHECKED, engineOptions.callbacks.onAddressesChecked)
       emitter.on(EmitterEvent.TXIDS_CHANGED, engineOptions.callbacks.onTxidsChanged)
