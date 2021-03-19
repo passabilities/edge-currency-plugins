@@ -165,7 +165,6 @@ export function makeUtxoEngineState(config: UtxoEngineStateConfig): UtxoEngineSt
           used: true,
         })
       }
-      await run()
     }
   }
 }
@@ -563,6 +562,7 @@ const processRawTx = (args: ProcessRawTxArgs): IProcessorTransaction => {
     inputs: tx.vin.map((input) => ({
       txId: input.txid,
       outputIndex: input.vout, // case for tx `fefac8c22ba1178df5d7c90b78cc1c203d1a9f5f5506f7b8f6f469fa821c2674` no `vout` for input
+      address: input.addresses[0],
       scriptPubkey: validScriptPubkeyFromAddress({
         address: input.addresses[0],
         coin: currencyInfo.network,
@@ -572,6 +572,7 @@ const processRawTx = (args: ProcessRawTxArgs): IProcessorTransaction => {
     })),
     outputs: tx.vout.map((output) => ({
       index: output.n,
+      address: output.addresses[0],
       scriptPubkey: output.hex ?? validScriptPubkeyFromAddress({
         address: output.addresses[0],
         coin: currencyInfo.network,
@@ -656,7 +657,6 @@ const processAddressUtxos = async (args: ProcessAddressUtxosArgs): Promise<void>
 
     const diff = bs.sub(newBalance, oldBalance)
     if (diff !== '0') {
-      console.log({ address, diff })
       emitter.emit(EmitterEvent.BALANCE_CHANGED, currencyInfo.currencyCode, diff)
 
       await processor.updateAddressByScriptPubkey(scriptPubkey, {

@@ -42,6 +42,7 @@ export interface IProcessorTransaction {
 
 export interface ITransactionOutput {
   amount: string
+  address: string
   scriptPubkey: string
 }
 

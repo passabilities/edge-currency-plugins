@@ -32,12 +32,9 @@ export const toEdgeTransaction = async (args: ToEdgeTransactionArgs): Promise<Ed
   nativeAmount: args.tx.ourAmount,
   networkFee: args.tx.fees,
   signedTx: args.tx.hex,
-  ourReceiveAddresses: await Promise.all(args.tx.ourOuts.map(async (i: string) =>
-    args.walletTools.scriptPubkeyToAddress({
-      scriptPubkey: args.tx.outputs[parseInt(i)].scriptPubkey,
-      format: (await args.processor.fetchAddressByScriptPubkey(args.tx.outputs[parseInt(i)].scriptPubkey))!.path!.format
-    }).address
-  )),
+  ourReceiveAddresses: args.tx.ourOuts.map((i: string) =>
+    args.tx.outputs[parseInt(i)].address
+  ),
   otherParams: {
     inputs: args.tx.inputs,
     outputs: args.tx.outputs,
