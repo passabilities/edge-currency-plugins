@@ -2825,9 +2825,9 @@ ecc-jsbn@~0.1.1:
     jsbn "~0.1.0"
     safer-buffer "^2.1.0"
 
-"edge-core-js@git://github.com/EdgeApp/edge-core-js.git#noah/engine-dump-type":
+"edge-core-js@git://github.com/EdgeApp/edge-core-js.git#master":
   version "0.17.26"
-  resolved "git://github.com/EdgeApp/edge-core-js.git#0a0fe098a773065b5ca854c09d5e91b1c5559693"
+  resolved "git://github.com/EdgeApp/edge-core-js.git#85d6eb076acbafcb1c8260d0c265af4f909e0848"
   dependencies:
     aes-js "^3.1.0"
     base-x "^1.0.4"
@@ -2849,6 +2849,7 @@ ecc-jsbn@~0.1.1:
     rfc4648 "^1.4.0"
     scrypt-js "^2.0.3"
     yaob "^0.3.6"
+    yavent "^0.1.1"
 
 ee-first@1.1.1:
   version "1.1.1"
@@ -7874,6 +7875,11 @@ yargs@13.3.2:
     which-module "^2.0.0"
     y18n "^4.0.0"
     yargs-parser "^13.1.2"
+
+yavent@^0.1.1:
+  version "0.1.1"
+  resolved "https://registry.yarnpkg.com/yavent/-/yavent-0.1.1.tgz#cc6458d24ded144da7126b8445163b11b967646f"
+  integrity sha512-jeFpwxVlI7AM9D+a+K36gmKV7lE41Nq0LZ48NhLQ+dKSWkf4GzxKn9NZ3yat/EsvEfNkKBdY1JTNNuXi0TdRuA==
 
 yn@3.1.1:
   version "3.1.1"
