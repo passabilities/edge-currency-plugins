@@ -663,7 +663,7 @@ const findLastUsedIndex = async (
     }
   }
 
-  return path.addressIndex
+  return lastUsedIndex
 }
 
 interface FetchAddressDataByPath extends CommonArgs {
